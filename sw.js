@@ -1,5 +1,5 @@
 
-const CACHE_NAME = 'ricardo-finance-v3';
+const CACHE_NAME = 'ricardo-finance-v4';
 const OFFLINE_URL = 'index.html';
 
 const ASSETS_TO_CACHE = [
@@ -7,11 +7,11 @@ const ASSETS_TO_CACHE = [
   './index.html',
   './manifest.json',
   'https://cdn.tailwindcss.com',
-  'https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap',
+  'https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap',
   'https://cdn-icons-png.flaticon.com/512/2632/2632283.png'
 ];
 
-// Instalação: Cacheia ativos essenciais
+// Instalação: Armazena o shell da aplicação no cache
 self.addEventListener('install', (event) => {
   event.waitUntil(
     caches.open(CACHE_NAME).then((cache) => {
@@ -22,7 +22,7 @@ self.addEventListener('install', (event) => {
   self.skipWaiting();
 });
 
-// Ativação: Limpa caches antigos
+// Ativação: Limpa versões de cache obsoletas
 self.addEventListener('activate', (event) => {
   event.waitUntil(
     caches.keys().then((cacheNames) => {
@@ -39,21 +39,24 @@ self.addEventListener('activate', (event) => {
   self.clients.claim();
 });
 
-// Interceptação de requisições: Cache First para ativos, Network First para o resto
+// Interceptação de Fetch
 self.addEventListener('fetch', (event) => {
-  // Ignorar requisições de API (Supabase, Gemini) para não quebrar a lógica dinâmica
-  if (event.request.url.includes('supabase.co') || event.request.url.includes('googleapis.com')) {
-    return;
+  // Ignorar requisições de API para manter dados em tempo real
+  const isApiRequest = event.request.url.includes('supabase.co') || 
+                       event.request.url.includes('googleapis.com');
+
+  if (isApiRequest) {
+    return; // Deixa o navegador lidar com a rede normalmente
   }
 
   event.respondWith(
-    caches.match(event.request).then((response) => {
-      if (response) {
-        return response; // Retorna do cache se encontrar
+    caches.match(event.request).then((cachedResponse) => {
+      if (cachedResponse) {
+        return cachedResponse;
       }
 
       return fetch(event.request).then((networkResponse) => {
-        // Armazena novos ativos no cache dinamicamente se forem do mesmo domínio
+        // Não cacheia respostas inválidas ou de outros domínios sem ser ativos básicos
         if (!networkResponse || networkResponse.status !== 200 || networkResponse.type !== 'basic') {
           return networkResponse;
         }
@@ -65,7 +68,7 @@ self.addEventListener('fetch', (event) => {
 
         return networkResponse;
       }).catch(() => {
-        // Se falhar a rede e o cache, e for uma navegação, retorna a página inicial (fallback)
+        // Fallback offline para navegação
         if (event.request.mode === 'navigate') {
           return caches.match(OFFLINE_URL);
         }
