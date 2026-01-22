@@ -1,0 +1,40 @@
+
+{
+  "name": "controle-financeiro-ricardo",
+  "version": "1.0.0",
+  "description": "Controle Financeiro Inteligente Ricardo",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "build:win": "electron-builder --win nsis --x64"
+  },
+  "keywords": [
+    "finance",
+    "ai",
+    "desktop"
+  ],
+  "author": "Ricardo Finance Team",
+  "license": "MIT",
+  "devDependencies": {
+    "electron": "^28.0.0",
+    "electron-builder": "^24.9.1"
+  },
+  "build": {
+    "appId": "com.financeiro-ricardo.app",
+    "productName": "Controle Financeiro Ricardo",
+    "win": {
+      "target": "nsis",
+      "icon": "https://cdn-icons-png.flaticon.com/512/2632/2632283.png"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "shortcutName": "Controle Financeiro Ricardo"
+    },
+    "files": [
+      "**/*",
+      "!dist/**"
+    ]
+  }
+}
