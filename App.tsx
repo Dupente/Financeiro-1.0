@@ -7,6 +7,7 @@ import { TransactionForm } from './components/TransactionForm';
 import { AIAdvisor } from './components/AIAdvisor';
 import { UpcomingAlerts } from './components/UpcomingAlerts';
 import { BackupManager } from './components/BackupManager';
+import { Auth } from './components/Auth';
 import { db } from './services/dbService';
 import { 
   LayoutDashboard, 
@@ -23,14 +24,20 @@ import {
   Database,
   Loader2,
   CheckCircle2,
-  DollarSign,
-  ShieldCheck,
-  Check,
-  Download
+  Download,
+  Cloud,
+  LogOut,
+  User as UserIcon,
+  Smartphone,
+  RefreshCw,
+  AlertCircle,
+  Check
 } from 'lucide-react';
 
 const App: React.FC = () => {
   const [loading, setLoading] = useState(true);
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [currentUser, setCurrentUser] = useState<string | null>(null);
   const [isDarkMode, setIsDarkMode] = useState(false);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [dbStatus, setDbStatus] = useState({ connected: false, count: 0 });
@@ -41,77 +48,142 @@ const App: React.FC = () => {
   const [paymentDate, setPaymentDate] = useState(new Date().toISOString().split('T')[0]);
   const [paymentAmount, setPaymentAmount] = useState<number | string>(0);
   const [currentDate, setCurrentDate] = useState(new Date());
-  const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
   
-  // Estado para a animação de gravação
-  const [showSaveSuccess, setShowSaveSuccess] = useState(false);
+  // Estados para o Balão de Sincronização
+  const [syncStatus, setSyncStatus] = useState<'idle' | 'syncing' | 'success' | 'error'>('idle');
 
-  // Inicialização do Banco de Dados Local e Detecção de Atalhos
   useEffect(() => {
     const initApp = async () => {
       try {
         await db.init();
-        
         const darkMode = await db.getConfig('dark_mode');
         setIsDarkMode(!!darkMode);
         
-        const allTransactions = await db.getAllTransactions();
-        const count = await db.countTransactions();
-        
-        setTransactions(allTransactions);
-        setDbStatus({ connected: true, count });
-
-        // Verificar se foi aberto via atalho ?action=new
-        const params = new URLSearchParams(window.location.search);
-        if (params.get('action') === 'new') {
-          setIsFormOpen(true);
-          // Limpar a URL para evitar reabrir ao atualizar
-          window.history.replaceState({}, document.title, "/");
+        const authData = await db.getAuthData();
+        if (authData?.username) {
+          setCurrentUser(authData.username);
+          setIsAuthenticated(true);
+          const allTransactions = await db.getAllTransactions();
+          setTransactions(allTransactions);
         }
+        
+        const count = await db.countTransactions();
+        setDbStatus({ connected: true, count });
       } catch (err) {
-        console.error("Falha ao inicializar banco local:", err);
+        console.error("Falha ao inicializar app:", err);
       } finally {
         setLoading(false);
       }
     };
     initApp();
-
-    // Capturar o evento de instalação PWA
-    window.addEventListener('beforeinstallprompt', (e) => {
-      e.preventDefault();
-      setDeferredPrompt(e);
-    });
   }, []);
 
-  // Monitora alterações para atualizar o contador de integridade
-  useEffect(() => {
-    if (dbStatus.connected) {
-      db.countTransactions().then(c => setDbStatus(prev => ({ ...prev, count: c })));
-    }
-  }, [transactions, dbStatus.connected]);
-
-  useEffect(() => {
-    if (loading) return;
-    db.setConfig('dark_mode', isDarkMode);
-    if (isDarkMode) {
-      document.documentElement.classList.add('dark');
-    } else {
-      document.documentElement.classList.remove('dark');
-    }
-  }, [isDarkMode, loading]);
-
-  const handleInstallClick = async () => {
-    if (!deferredPrompt) return;
-    deferredPrompt.prompt();
-    const { outcome } = await deferredPrompt.userChoice;
-    if (outcome === 'accepted') {
-      setDeferredPrompt(null);
+  const triggerSyncFeedback = async (action: () => Promise<any>) => {
+    setSyncStatus('syncing');
+    try {
+      await action();
+      setSyncStatus('success');
+      setTimeout(() => setSyncStatus('idle'), 3000);
+    } catch (error) {
+      console.error("Sync error:", error);
+      setSyncStatus('error');
+      setTimeout(() => setSyncStatus('idle'), 5000);
     }
   };
 
-  const triggerSaveFeedback = () => {
-    setShowSaveSuccess(true);
-    setTimeout(() => setShowSaveSuccess(false), 2500);
+  const handleAddTransactions = async (newItems: Transaction | Transaction[]) => {
+    await triggerSyncFeedback(async () => {
+      const itemsToAdd = Array.isArray(newItems) ? newItems : [newItems];
+      if (editingTransaction) await db.deleteTransaction(editingTransaction.id);
+      await db.saveTransactions(itemsToAdd);
+      const updated = await db.getAllTransactions();
+      setTransactions(updated);
+      setIsFormOpen(false);
+      setEditingTransaction(null);
+    });
+  };
+
+  const handleDeleteTransaction = async (transaction: Transaction) => {
+    if (transaction.seriesId && (transaction.recurrence === RecurrenceType.FIXED || transaction.recurrence === RecurrenceType.INSTALLMENT)) {
+      setTransactionToDelete(transaction);
+    } else {
+      await triggerSyncFeedback(async () => {
+        await db.deleteTransaction(transaction.id);
+        setTransactions(prev => prev.filter(t => t.id !== transaction.id));
+      });
+    }
+  };
+
+  const confirmDelete = async (mode: 'single' | 'future') => {
+    if (!transactionToDelete) return;
+    await triggerSyncFeedback(async () => {
+      if (mode === 'single') {
+        await db.deleteTransaction(transactionToDelete.id);
+        setTransactions(prev => prev.filter(t => t.id !== transactionToDelete.id));
+      } else if (mode === 'future') {
+        const deleteDate = new Date(transactionToDelete.date);
+        const toDelete = transactions.filter(t => {
+          const isSameSeries = t.seriesId === transactionToDelete.seriesId;
+          const tDate = new Date(t.date);
+          return (isSameSeries && tDate.getTime() >= deleteDate.getTime());
+        });
+        for (const t of toDelete) await db.deleteTransaction(t.id);
+        setTransactions(prev => prev.filter(t => !toDelete.find(td => td.id === t.id)));
+      }
+      setTransactionToDelete(null);
+    });
+  };
+
+  const toggleStatus = async (id: string) => {
+    const target = transactions.find(t => t.id === id);
+    if (!target) return;
+
+    if (target.status === TransactionStatus.PENDING) {
+      setTransactionToPay(target);
+      setPaymentDate(new Date().toISOString().split('T')[0]);
+      setPaymentAmount(target.amount);
+    } else {
+      await triggerSyncFeedback(async () => {
+        const updated = { ...target, status: TransactionStatus.PENDING, paymentDate: undefined };
+        await db.saveTransaction(updated);
+        setTransactions(prev => prev.map(t => t.id === id ? updated : t));
+      });
+    }
+  };
+
+  const handleConfirmPayment = async () => {
+    if (!transactionToPay) return;
+    await triggerSyncFeedback(async () => {
+      const pDate = new Date(paymentDate);
+      pDate.setMinutes(pDate.getMinutes() + pDate.getTimezoneOffset());
+      const updated = { 
+        ...transactionToPay, 
+        status: TransactionStatus.PAID, 
+        paymentDate: pDate.toISOString(),
+        amount: Number(paymentAmount)
+      };
+      await db.saveTransaction(updated);
+      setTransactions(prev => prev.map(t => t.id === transactionToPay.id ? updated : t));
+      setTransactionToPay(null);
+    });
+  };
+
+  const handleRefreshData = async () => {
+    const all = await db.getAllTransactions();
+    setTransactions(all);
+    const count = await db.countTransactions();
+    setDbStatus({ connected: true, count });
+  };
+
+  const handleLogout = async () => {
+    try {
+      await db.logout();
+      setTransactions([]);
+      setCurrentUser(null);
+      setIsAuthenticated(false);
+    } catch (err) {
+      console.error("Erro ao sair:", err);
+    }
   };
 
   const filteredTransactions = useMemo(() => {
@@ -129,7 +201,6 @@ const App: React.FC = () => {
       }
       return acc;
     }, 0);
-
     const monthly = filteredTransactions.reduce((acc, t) => {
       const amount = Number(t.amount);
       if (t.type === TransactionType.INCOME) {
@@ -140,110 +211,15 @@ const App: React.FC = () => {
         if (t.status === TransactionStatus.PAID) acc.paidExpenses += amount;
       }
       return acc;
-    }, {
-      totalIncome: 0,
-      totalExpenses: 0,
-      paidIncome: 0,
-      paidExpenses: 0
-    });
-
+    }, { totalIncome: 0, totalExpenses: 0, paidIncome: 0, paidExpenses: 0 });
     const pendingBalance = (monthly.totalIncome - monthly.paidIncome) - (monthly.totalExpenses - monthly.paidExpenses);
-    
-    return {
-      ...monthly,
-      balance: globalBalance,
-      pendingBalance
-    };
+    return { ...monthly, balance: globalBalance, pendingBalance };
   }, [transactions, filteredTransactions]);
 
-  const handleRefreshData = async () => {
-    const all = await db.getAllTransactions();
-    const count = await db.countTransactions();
-    setTransactions(all);
-    setDbStatus({ connected: true, count });
-  };
-
-  const handleAddTransactions = async (newItems: Transaction | Transaction[]) => {
-    const itemsToAdd = Array.isArray(newItems) ? newItems : [newItems];
-    if (editingTransaction) await db.deleteTransaction(editingTransaction.id);
-    await db.saveTransactions(itemsToAdd);
-    const updated = await db.getAllTransactions();
-    setTransactions(updated);
-    setIsFormOpen(false);
-    setEditingTransaction(null);
-    triggerSaveFeedback();
-  };
-
-  const handleDeleteTransaction = async (transaction: Transaction) => {
-    if (transaction.seriesId && (transaction.recurrence === RecurrenceType.FIXED || transaction.recurrence === RecurrenceType.INSTALLMENT)) {
-      setTransactionToDelete(transaction);
-    } else {
-      await db.deleteTransaction(transaction.id);
-      setTransactions(prev => prev.filter(t => t.id !== transaction.id));
-      triggerSaveFeedback();
-    }
-  };
-
-  const confirmDelete = async (mode: 'single' | 'future') => {
-    if (!transactionToDelete) return;
-    if (mode === 'single') {
-      await db.deleteTransaction(transactionToDelete.id);
-      setTransactions(prev => prev.filter(t => t.id !== transactionToDelete.id));
-    } else if (mode === 'future') {
-      const deleteDate = new Date(transactionToDelete.date);
-      const toDelete = transactions.filter(t => {
-        const isSameSeries = t.seriesId === transactionToDelete.seriesId;
-        const tDate = new Date(t.date);
-        return (isSameSeries && tDate.getTime() >= deleteDate.getTime());
-      });
-      for (const t of toDelete) await db.deleteTransaction(t.id);
-      setTransactions(prev => prev.filter(t => !toDelete.find(td => td.id === t.id)));
-    }
-    setTransactionToDelete(null);
-    triggerSaveFeedback();
-  };
-
-  const toggleStatus = async (id: string) => {
-    const target = transactions.find(t => t.id === id);
-    if (!target) return;
-
-    if (target.status === TransactionStatus.PENDING) {
-      setTransactionToPay(target);
-      setPaymentDate(new Date().toISOString().split('T')[0]);
-      setPaymentAmount(target.amount);
-    } else {
-      const updated = { ...target, status: TransactionStatus.PENDING, paymentDate: undefined };
-      await db.saveTransaction(updated);
-      setTransactions(prev => prev.map(t => t.id === id ? updated : t));
-      triggerSaveFeedback();
-    }
-  };
-
-  const handleConfirmPayment = async () => {
-    if (!transactionToPay) return;
-
-    const pDate = new Date(paymentDate);
-    pDate.setMinutes(pDate.getMinutes() + pDate.getTimezoneOffset());
-
-    const updated = { 
-      ...transactionToPay, 
-      status: TransactionStatus.PAID, 
-      paymentDate: pDate.toISOString(),
-      amount: Number(paymentAmount)
-    };
-
-    await db.saveTransaction(updated);
-    setTransactions(prev => prev.map(t => t.id === transactionToPay.id ? updated : t));
-    setTransactionToPay(null);
-    triggerSaveFeedback();
-  };
-
   const changeMonth = (offset: number) => {
-    setCurrentDate(prev => {
-      const d = new Date(prev);
-      d.setMonth(d.getMonth() + offset);
-      return d;
-    });
+    const newDate = new Date(currentDate);
+    newDate.setMonth(newDate.getMonth() + offset);
+    setCurrentDate(newDate);
   };
 
   const monthName = `${currentDate.toLocaleString('pt-BR', { month: 'long' })} ${currentDate.getFullYear()}`;
@@ -252,110 +228,139 @@ const App: React.FC = () => {
     return (
       <div className={`fixed inset-0 flex flex-col items-center justify-center ${isDarkMode ? 'bg-slate-950 text-white' : 'bg-slate-50 text-slate-900'}`}>
         <Loader2 className="animate-spin text-indigo-500 mb-4" size={48} />
-        <p className="font-bold text-lg animate-pulse tracking-tight">Verificando Banco Ricardo...</p>
+        <p className="font-black text-lg animate-pulse tracking-tight text-center">Iniciando Experiência<br/>Ricardo Finance...</p>
       </div>
     );
   }
 
+  if (!isAuthenticated) {
+    return <Auth onLogin={() => {
+      db.getAuthData().then(data => setCurrentUser(data?.username));
+      handleRefreshData();
+      setIsAuthenticated(true);
+    }} isDarkMode={isDarkMode} />;
+  }
+
   return (
-    <div className={`min-h-screen transition-colors duration-300 ${isDarkMode ? 'bg-slate-950 text-slate-100' : 'bg-slate-50 text-slate-900'} pb-20 md:pb-10`}>
+    <div className={`min-h-screen transition-colors duration-300 ${isDarkMode ? 'bg-slate-950 text-slate-100' : 'bg-slate-50 text-slate-900'} pb-24 md:pb-10`}>
       
-      {/* Feedback de Gravação */}
-      {showSaveSuccess && (
-        <div className="fixed top-24 right-6 z-[100] animate-in slide-in-from-right-10 fade-in duration-500">
-          <div className={`flex items-center gap-3 px-4 py-2 rounded-2xl border shadow-2xl ${
-            isDarkMode ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400' : 'bg-emerald-50 border-emerald-200 text-emerald-600'
-          } backdrop-blur-md`}>
-            <div className={`p-1.5 rounded-full ${isDarkMode ? 'bg-emerald-500/20' : 'bg-emerald-500/10'}`}>
-              <Check size={16} strokeWidth={3} className="animate-bounce" />
+      {/* Balão de Status de Sincronização Supabase Melhorado */}
+      {syncStatus !== 'idle' && (
+        <div className="fixed top-6 left-0 right-0 z-[250] flex justify-center px-4 pointer-events-none animate-in slide-in-from-top-full duration-500">
+          <div className={`
+            pointer-events-auto flex items-center gap-3 px-5 py-3 rounded-2xl border shadow-2xl backdrop-blur-xl transition-all duration-300
+            ${syncStatus === 'syncing' 
+              ? (isDarkMode ? 'bg-indigo-600/20 border-indigo-500/30 text-indigo-300' : 'bg-indigo-50/90 border-indigo-200 text-indigo-600') 
+              : syncStatus === 'success'
+                ? (isDarkMode ? 'bg-emerald-600/20 border-emerald-500/30 text-emerald-300' : 'bg-emerald-50/90 border-emerald-200 text-emerald-600')
+                : (isDarkMode ? 'bg-rose-600/20 border-rose-500/30 text-rose-300' : 'bg-rose-50/90 border-rose-200 text-rose-600 animate-shake')
+            }
+          `}>
+            <div className={`
+              flex items-center justify-center w-8 h-8 rounded-full 
+              ${syncStatus === 'syncing' ? 'bg-indigo-500/20 animate-pulse' : syncStatus === 'success' ? 'bg-emerald-500/20' : 'bg-rose-500/20'}
+            `}>
+              {syncStatus === 'syncing' && <RefreshCw size={16} className="animate-spin" />}
+              {syncStatus === 'success' && <Check size={16} className="animate-bounce" />}
+              {syncStatus === 'error' && <AlertCircle size={16} className="animate-pulse" />}
             </div>
-            <div className="flex flex-col">
-              <span className="text-[10px] font-black uppercase tracking-widest">Banco Sincronizado</span>
-              <span className="text-[9px] font-bold opacity-70">Dados persistentes OK</span>
+            
+            <div className="flex flex-col pr-2">
+              <span className="text-[9px] font-black uppercase tracking-[0.2em] opacity-60 leading-none mb-1">
+                Cloud Sync
+              </span>
+              <span className="text-xs font-black tracking-tight whitespace-nowrap">
+                {syncStatus === 'syncing' && 'Atualizando Supabase...'}
+                {syncStatus === 'success' && 'Dados salvos na nuvem'}
+                {syncStatus === 'error' && 'Falha na gravação remota'}
+              </span>
             </div>
+            
+            {syncStatus === 'success' && (
+              <div className="flex-shrink-0 w-1.5 h-1.5 rounded-full bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.8)]"></div>
+            )}
           </div>
         </div>
       )}
 
-      <header className={`border-b sticky top-0 z-30 px-4 py-4 sm:px-6 transition-colors duration-300 ${isDarkMode ? 'bg-slate-900 border-slate-800 shadow-lg shadow-black/20' : 'bg-white border-slate-200 shadow-sm'}`}>
+      <header className={`border-b sticky top-0 z-30 px-4 py-4 sm:px-6 transition-colors duration-300 ${isDarkMode ? 'bg-slate-900/80 border-slate-800 shadow-lg shadow-black/20 backdrop-blur-md' : 'bg-white/80 border-slate-200 shadow-sm backdrop-blur-md'}`}>
         <div className="max-w-[1600px] mx-auto flex items-center justify-between">
           <div className="flex items-center gap-3">
             <div className="bg-indigo-600 p-2.5 rounded-2xl text-white shadow-lg shadow-indigo-600/20">
               <Wallet size={24} />
             </div>
             <div className="hidden sm:block">
-              <h1 className="text-xl font-black tracking-tight leading-none mb-1">Ricardo Finance</h1>
+              <h1 className="text-xl font-black tracking-tight leading-none mb-1 text-slate-900 dark:text-white">Ricardo Finance</h1>
               <div className="flex items-center gap-2">
                 <div className={`flex items-center gap-1.5 px-2 py-0.5 rounded-full border text-[9px] font-black uppercase tracking-wider ${
                   dbStatus.connected 
                   ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-500' 
                   : 'bg-rose-500/10 border-rose-500/20 text-rose-500'
                 }`}>
-                  <ShieldCheck size={10} />
-                  Banco {dbStatus.connected ? 'Persistente' : 'Erro'} • {dbStatus.count} Itens
+                  <Cloud size={10} className="animate-pulse" />
+                  Supabase Ativo • {dbStatus.count} Itens
                 </div>
               </div>
             </div>
           </div>
 
           <div className="flex items-center gap-2 sm:gap-4">
-            {/* Botão de Instalação PWA */}
-            {deferredPrompt && (
-              <button 
-                onClick={handleInstallClick}
-                className={`p-2.5 rounded-xl flex items-center gap-2 text-xs font-black uppercase tracking-widest transition-all ${
-                  isDarkMode ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 hover:bg-emerald-500/20' : 'bg-emerald-50 text-emerald-600 border border-emerald-100 hover:bg-emerald-100'
-                }`}
-              >
-                <Download size={16} />
-                <span className="hidden lg:inline">Instalar App</span>
-              </button>
-            )}
+            <div className="hidden lg:flex items-center gap-2 px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800/50">
+               <UserIcon size={14} className="text-indigo-500" />
+               <span className="text-xs font-bold truncate max-w-[100px]">{currentUser || 'Usuário'}</span>
+            </div>
 
-            <button onClick={() => setIsDarkMode(!isDarkMode)} className={`p-2.5 rounded-xl transition-all ${isDarkMode ? 'bg-slate-800 text-amber-400 hover:bg-slate-700' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}>
+            <button onClick={() => setIsDarkMode(!isDarkMode)} title="Alternar Tema" className={`p-2.5 rounded-xl transition-all ${isDarkMode ? 'bg-slate-800 text-amber-400 hover:bg-slate-700' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}>
               {isDarkMode ? <Sun size={20} /> : <Moon size={20} />}
             </button>
 
+            <button 
+              type="button"
+              onClick={handleLogout} 
+              title="Sair da Conta" 
+              className={`p-2.5 rounded-xl transition-all shadow-sm flex items-center justify-center ${
+                isDarkMode 
+                ? 'bg-rose-500/10 text-rose-400 hover:bg-rose-500/20 border border-rose-500/20' 
+                : 'bg-rose-50 text-rose-600 hover:bg-rose-100 border border-rose-100'
+              }`}
+            >
+              <LogOut size={20} strokeWidth={2.5} />
+            </button>
+
             <div className={`flex items-center rounded-xl p-1 transition-colors ${isDarkMode ? 'bg-slate-800' : 'bg-slate-100'}`}>
-              <button onClick={() => changeMonth(-1)} className={`p-1.5 rounded-lg transition-colors ${isDarkMode ? 'hover:bg-slate-700 text-slate-400' : 'hover:bg-white text-slate-600'}`}>
-                <ChevronLeft size={20} />
-              </button>
-              <span className="px-3 py-1 font-bold text-xs sm:text-sm capitalize w-24 sm:w-40 text-center truncate tracking-tight">{monthName}</span>
-              <button onClick={() => changeMonth(1)} className={`p-1.5 rounded-lg transition-colors ${isDarkMode ? 'hover:bg-slate-700 text-slate-400' : 'hover:bg-white text-slate-600'}`}>
-                <ChevronRight size={20} />
-              </button>
+              <button onClick={() => changeMonth(-1)} className="p-1.5"><ChevronLeft size={20} /></button>
+              <span className="px-3 py-1 font-bold text-xs sm:text-sm capitalize w-20 sm:w-40 text-center truncate">{monthName}</span>
+              <button onClick={() => changeMonth(1)} className="p-1.5"><ChevronRight size={20} /></button>
             </div>
             
-            <button onClick={() => { setEditingTransaction(null); setIsFormOpen(true); }} className="bg-indigo-600 hover:bg-indigo-700 text-white p-2.5 sm:px-6 sm:py-2.5 rounded-xl flex items-center gap-2 transition-all shadow-xl shadow-indigo-600/20 font-bold active:scale-95">
-              <PlusCircle size={20} />
-              <span className="hidden sm:inline">Novo Lançamento</span>
+            <button onClick={() => { setEditingTransaction(null); setIsFormOpen(true); }} className="bg-indigo-600 hover:bg-indigo-700 text-white px-5 py-2.5 rounded-xl flex items-center gap-2 shadow-xl shadow-indigo-600/20 font-bold active:scale-95">
+              <PlusCircle size={20} /> <span className="hidden sm:inline">Lançar</span>
             </button>
           </div>
         </div>
       </header>
 
       <main className="max-w-[1600px] mx-auto px-4 py-8 sm:px-6 space-y-8">
-        <section className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 transition-all duration-500">
-          <Dashboard title="Saldo Geral" value={stats.balance} icon={<Wallet className="text-white" size={20} />} color="bg-emerald-500" description="Histórico acumulado pago" isDarkMode={isDarkMode} />
-          <Dashboard title="Receitas do Mês" value={stats.totalIncome} icon={<TrendingUp className="text-white" size={20} />} color="bg-blue-500" description={`Confirmado: R$ ${stats.paidIncome.toFixed(2)}`} isDarkMode={isDarkMode} />
-          <Dashboard title="Dashboard de Despesas" value={stats.totalExpenses} icon={<TrendingDown className="text-white" size={20} />} color="bg-rose-500" description={`Liquidado: R$ ${stats.paidExpenses.toFixed(2)}`} isDarkMode={isDarkMode} />
-          <Dashboard title="Balanço Pendente" value={stats.pendingBalance} icon={<Calendar className="text-white" size={20} />} color="bg-amber-500" description="Diferença a liquidar" isDarkMode={isDarkMode} />
+        <section className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          <Dashboard title="Saldo Geral" value={stats.balance} icon={<Wallet className="text-white" size={20} />} color="bg-emerald-500" description="Saldo pago acumulado" isDarkMode={isDarkMode} />
+          <Dashboard title="Receitas do Mês" value={stats.totalIncome} icon={<TrendingUp className="text-white" size={20} />} color="bg-blue-500" description={`Liquidado: R$ ${stats.paidIncome.toFixed(2)}`} isDarkMode={isDarkMode} />
+          <Dashboard title="Despesas do Mês" value={stats.totalExpenses} icon={<TrendingDown className="text-white" size={20} />} color="bg-rose-500" description={`Liquidado: R$ ${stats.paidExpenses.toFixed(2)}`} isDarkMode={isDarkMode} />
+          <Dashboard title="Balanço Pendente" value={stats.pendingBalance} icon={<Calendar className="text-white" size={20} />} color="bg-amber-500" description="A liquidar no mês" isDarkMode={isDarkMode} />
         </section>
 
-        <div className="grid grid-cols-1 xl:grid-cols-4 gap-8 items-start transition-all duration-700 ease-in-out">
+        <div className="grid grid-cols-1 xl:grid-cols-4 gap-8">
           <div className="xl:col-span-3 space-y-6">
-            <div className={`rounded-3xl shadow-xl border overflow-hidden transition-all duration-500 ease-in-out ${isDarkMode ? 'bg-slate-900 border-slate-800 shadow-black/40' : 'bg-white border-slate-200 shadow-slate-200/50'}`}>
-              <div className={`px-6 py-5 border-b flex justify-between items-center ${isDarkMode ? 'border-slate-800' : 'border-slate-100'}`}>
-                <h2 className="font-black flex items-center gap-3 text-lg tracking-tight">
+            <div className={`rounded-3xl shadow-xl border overflow-hidden ${isDarkMode ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'}`}>
+              <div className="px-6 py-5 border-b flex justify-between items-center">
+                <h2 className="font-black flex items-center gap-3 text-lg text-slate-800 dark:text-white">
                   <LayoutDashboard size={22} className="text-indigo-600" />
-                  Fluxo de Caixa
-                  <span className="text-[10px] bg-indigo-500/10 text-indigo-500 px-3 py-1 rounded-full ml-2 font-black uppercase">
-                    {filteredTransactions.length} LANÇAMENTOS
+                  Fluxo Mensal
+                  <span className="text-[10px] bg-indigo-500/10 text-indigo-500 px-3 py-1 rounded-full font-black uppercase">
+                    {filteredTransactions.length} ITENS
                   </span>
                 </h2>
-                <div className="flex items-center gap-2 text-[10px] text-slate-500 font-black uppercase tracking-widest">
-                  <Database size={14} className="text-indigo-500" />
-                  Storage: OK
+                <div className="text-[10px] text-slate-500 font-black uppercase tracking-widest flex items-center gap-2">
+                  <Database size={14} className="text-emerald-500" /> Cloud Sync: OK
                 </div>
               </div>
               <TransactionList transactions={filteredTransactions} onEdit={(t) => { setEditingTransaction(t); setIsFormOpen(true); }} onDelete={handleDeleteTransaction} onToggleStatus={toggleStatus} isDarkMode={isDarkMode} />
@@ -365,93 +370,62 @@ const App: React.FC = () => {
             <UpcomingAlerts transactions={transactions} isDarkMode={isDarkMode} />
             <AIAdvisor transactions={filteredTransactions} />
             <BackupManager onDataRestored={handleRefreshData} isDarkMode={isDarkMode} />
-            <div className={`p-4 rounded-2xl border flex items-center gap-3 transition-all ${isDarkMode ? 'bg-slate-900/50 border-slate-800/50' : 'bg-slate-50 border-slate-100'}`}>
-              <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse shadow-[0_0_8px_rgba(16,185,129,0.5)]"></div>
-              <p className="text-[10px] font-black uppercase text-slate-500 tracking-tighter">
-                Sistema Seguro: Banco de dados com redundância local.
-              </p>
-            </div>
           </aside>
         </div>
       </main>
 
-      {/* Modal de Transação */}
+      <button 
+        onClick={() => { setEditingTransaction(null); setIsFormOpen(true); }}
+        className="fixed bottom-6 right-6 sm:hidden z-40 bg-indigo-600 text-white w-16 h-16 rounded-full shadow-2xl shadow-indigo-600/50 flex items-center justify-center active:scale-90 transition-transform"
+      >
+        <PlusCircle size={32} />
+      </button>
+
       {isFormOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-lg animate-in fade-in duration-300">
-          <div className="border rounded-[2.5rem] shadow-2xl w-full max-w-md bg-slate-900 border-slate-800 transform animate-in zoom-in-95 duration-200">
-            <div className="px-10 py-8 border-b border-slate-800 flex justify-between items-center">
-              <h3 className="text-2xl font-black text-white tracking-tight">{editingTransaction ? 'Editar Item' : 'Novo Registro'}</h3>
-              <button onClick={() => setIsFormOpen(false)} className="text-slate-400 hover:text-white transition-all bg-slate-800 p-2 rounded-full text-3xl leading-none">&times;</button>
+        <div className="fixed inset-0 z-[150] flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-lg">
+          <div className="border rounded-[2.5rem] shadow-2xl w-full max-w-md bg-slate-900 border-slate-800 p-8">
+            <div className="flex justify-between items-center mb-6">
+              <h3 className="text-2xl font-black text-white">{editingTransaction ? 'Editar' : 'Novo'}</h3>
+              <button onClick={() => setIsFormOpen(false)} className="text-slate-400 hover:text-white text-3xl">&times;</button>
             </div>
-            <div className="p-10 max-h-[80vh] overflow-y-auto custom-scrollbar">
-              <TransactionForm onSubmit={handleAddTransactions} initialData={editingTransaction} onCancel={() => setIsFormOpen(false)} />
-            </div>
+            <TransactionForm onSubmit={handleAddTransactions} initialData={editingTransaction} onCancel={() => setIsFormOpen(false)} />
           </div>
         </div>
       )}
 
-      {/* Modal de Pagamento */}
       {transactionToPay && (
-        <div className="fixed inset-0 z-[70] flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-lg animate-in fade-in duration-200">
-          <div className="border rounded-[2.5rem] shadow-2xl w-full max-w-sm bg-slate-900 border-slate-800 p-10 text-center space-y-8 transform animate-in zoom-in-95 duration-200">
+        <div className="fixed inset-0 z-[160] flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-lg">
+          <div className="border rounded-[2.5rem] bg-slate-900 border-slate-800 p-10 text-center space-y-8 w-full max-w-sm">
             <div className="mx-auto w-20 h-20 bg-emerald-500/20 rounded-3xl flex items-center justify-center text-emerald-500 shadow-xl shadow-emerald-500/10">
               <CheckCircle2 size={40} />
             </div>
             <div>
-              <h3 className="text-2xl font-black text-white mb-2 tracking-tight">Confirmar Baixa</h3>
-              <p className="text-slate-400 text-sm">Validar detalhes da liquidação:</p>
+              <h3 className="text-2xl font-black text-white mb-2">Liquidar Conta</h3>
+              <p className="text-slate-400 text-sm">Confirme o valor e a data real:</p>
             </div>
             <div className="space-y-5 text-left">
-              <div>
-                <label className="block text-[10px] font-black uppercase text-slate-500 mb-2 ml-1 tracking-widest">Data do Pagamento</label>
-                <input
-                  type="date"
-                  value={paymentDate}
-                  onChange={(e) => setPaymentDate(e.target.value)}
-                  className="w-full px-5 py-4 bg-slate-800 border border-slate-700 text-white rounded-2xl focus:ring-2 focus:ring-emerald-500 transition-all outline-none font-bold"
-                />
-              </div>
-              <div>
-                <label className="block text-[10px] font-black uppercase text-slate-500 mb-2 ml-1 tracking-widest">Valor Final (R$)</label>
-                <div className="relative">
-                  <DollarSign className="absolute left-5 top-1/2 -translate-y-1/2 text-slate-500" size={18} />
-                  <input
-                    type="number"
-                    step="0.01"
-                    value={paymentAmount}
-                    onChange={(e) => setPaymentAmount(e.target.value)}
-                    className="w-full pl-12 pr-5 py-4 bg-slate-800 border border-slate-700 text-white rounded-2xl focus:ring-2 focus:ring-emerald-500 transition-all outline-none font-bold"
-                  />
-                </div>
-              </div>
-              <div className="flex gap-4 pt-4">
-                <button onClick={() => setTransactionToPay(null)} className="flex-1 py-4 text-slate-500 font-black uppercase text-xs hover:bg-slate-800 rounded-2xl transition-all border border-slate-800">
-                  Voltar
-                </button>
-                <button onClick={handleConfirmPayment} className="flex-1 py-4 bg-emerald-600 hover:bg-emerald-700 text-white font-black uppercase text-xs rounded-2xl shadow-xl shadow-emerald-600/30 transition-all active:scale-95 tracking-widest">
-                  Liquidar
-                </button>
+              <input type="date" value={paymentDate} onChange={(e) => setPaymentDate(e.target.value)} className="w-full px-5 py-4 bg-slate-800 border border-slate-700 text-white rounded-2xl" />
+              <input type="number" step="0.01" value={paymentAmount} onChange={(e) => setPaymentAmount(e.target.value)} className="w-full px-5 py-4 bg-slate-800 border border-slate-700 text-white rounded-2xl" />
+              <div className="flex gap-4">
+                <button onClick={() => setTransactionToPay(null)} className="flex-1 py-4 border border-slate-800 rounded-2xl text-slate-500 font-bold uppercase text-xs">Voltar</button>
+                <button onClick={handleConfirmPayment} className="flex-1 py-4 bg-emerald-600 text-white rounded-2xl font-bold uppercase text-xs">Confirmar</button>
               </div>
             </div>
           </div>
         </div>
       )}
 
-      {/* Modal de Exclusão */}
       {transactionToDelete && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-slate-950/85 backdrop-blur-lg animate-in fade-in duration-200">
-          <div className="border rounded-[2.5rem] shadow-2xl w-full max-w-sm p-10 bg-slate-900 border-slate-800 text-center space-y-8 animate-in zoom-in-95 duration-200">
-            <div className="mx-auto w-20 h-20 bg-rose-500/20 rounded-3xl flex items-center justify-center shadow-xl shadow-rose-500/10">
-              <AlertTriangle size={40} className="text-rose-500" />
+        <div className="fixed inset-0 z-[170] flex items-center justify-center p-4 bg-slate-950/85 backdrop-blur-lg">
+          <div className="border rounded-[2.5rem] bg-slate-900 border-slate-800 p-10 text-center space-y-8 w-full max-w-sm">
+            <div className="mx-auto w-20 h-20 bg-rose-500/20 rounded-3xl flex items-center justify-center text-rose-500 shadow-xl shadow-rose-500/10">
+              <AlertTriangle size={40} />
             </div>
-            <div>
-              <h3 className="text-2xl font-black text-white mb-2 tracking-tight">Remover Lançamento</h3>
-              <p className="text-slate-400 text-sm">Esta transação possui recorrência ativa.</p>
-            </div>
+            <h3 className="text-2xl font-black text-white">Excluir Transação</h3>
             <div className="flex flex-col gap-4">
-              <button onClick={() => confirmDelete('single')} className="w-full py-4 bg-slate-800 hover:bg-slate-700 text-white font-black uppercase text-xs rounded-2xl transition-all tracking-wider">Apenas este mês</button>
-              <button onClick={() => confirmDelete('future')} className="w-full py-4 bg-rose-600 hover:bg-rose-700 text-white font-black uppercase text-xs rounded-2xl shadow-xl shadow-rose-600/30 transition-all tracking-wider">Este e todos os próximos</button>
-              <button onClick={() => setTransactionToDelete(null)} className="w-full py-2 text-slate-500 font-black uppercase text-[10px] tracking-widest">Cancelar Operação</button>
+              <button onClick={() => confirmDelete('single')} className="w-full py-4 bg-slate-800 text-white rounded-2xl font-bold uppercase text-xs">Apenas este mês</button>
+              <button onClick={() => confirmDelete('future')} className="w-full py-4 bg-rose-600 text-white rounded-2xl font-bold uppercase text-xs">Todos futuros</button>
+              <button onClick={() => setTransactionToDelete(null)} className="text-slate-500 font-bold uppercase text-[10px]">Cancelar</button>
             </div>
           </div>
         </div>

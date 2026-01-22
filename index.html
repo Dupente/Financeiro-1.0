@@ -3,32 +3,61 @@
 <html lang="pt-BR">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Controle Financeiro Ricardo</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <title>Ricardo Finance</title>
     
-    <!-- PWA Meta Tags -->
+    <!-- PWA Meta Tags Primárias -->
     <link rel="manifest" href="manifest.json">
     <meta name="theme-color" content="#4f46e5">
+    <meta name="description" content="Controle financeiro inteligente com IA para Ricardo.">
+    
+    <!-- Apple/iOS Meta Tags -->
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-    <meta name="apple-mobile-web-app-title" content="Finance Ricardo">
+    <meta name="apple-mobile-web-app-title" content="Ricardo Finance">
     <link rel="apple-touch-icon" href="https://cdn-icons-png.flaticon.com/512/2632/2632283.png">
+    
+    <!-- Microsoft / Tiles -->
+    <meta name="msapplication-TileImage" content="https://cdn-icons-png.flaticon.com/512/2632/2632283.png">
+    <meta name="msapplication-TileColor" content="#4f46e5">
 
     <script src="https://cdn.tailwindcss.com"></script>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
     
     <style>
         body {
             font-family: 'Inter', sans-serif;
             background-color: #f8fafc;
             -webkit-tap-highlight-color: transparent;
+            overscroll-behavior-y: none;
         }
         @keyframes pulse-soft {
             0%, 100% { opacity: 1; }
             50% { opacity: 0.5; }
         }
+        @keyframes shake {
+            0%, 100% { transform: translateX(0); }
+            10%, 30%, 50%, 70%, 90% { transform: translateX(-4px); }
+            20%, 40%, 60%, 80% { transform: translateX(4px); }
+        }
         .animate-pulse-soft {
             animation: pulse-soft 2s infinite;
+        }
+        .animate-shake {
+            animation: shake 0.5s cubic-bezier(.36,.07,.19,.97) both;
+        }
+        .custom-scrollbar::-webkit-scrollbar {
+            width: 6px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-track {
+            background: transparent;
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb {
+            background: #4f46e5;
+            border-radius: 10px;
+        }
+        header {
+            padding-top: env(safe-area-inset-top);
         }
     </style>
 <script type="importmap">
@@ -38,21 +67,13 @@
     "react": "https://esm.sh/react@^19.2.3",
     "react-dom/": "https://esm.sh/react-dom@^19.2.3/",
     "@google/genai": "https://esm.sh/@google/genai@^1.36.0",
-    "lucide-react": "https://esm.sh/lucide-react@^0.562.0"
+    "lucide-react": "https://esm.sh/lucide-react@^0.562.0",
+    "@supabase/supabase-js": "https://esm.sh/@supabase/supabase-js@^2.39.0"
   }
 }
 </script>
 </head>
 <body>
     <div id="root"></div>
-    <script>
-        if ('serviceWorker' in navigator) {
-            window.addEventListener('load', () => {
-                navigator.serviceWorker.register('./sw.js')
-                    .then(reg => console.log('Service Worker registrado!', reg))
-                    .catch(err => console.log('Erro ao registrar SW:', err));
-            });
-        }
-    </script>
 </body>
 </html>

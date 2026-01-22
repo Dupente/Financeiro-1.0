@@ -2,11 +2,10 @@
 import { GoogleGenAI } from "@google/genai";
 import { Transaction } from "../types";
 
-const ai = new GoogleGenAI({ apiKey: process.env.API_KEY || "" });
+// Always use const ai = new GoogleGenAI({apiKey: process.env.API_KEY});
+const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
 export const getFinancialAdvice = async (transactions: Transaction[]) => {
-  if (!process.env.API_KEY) return "AI API Key not configured.";
-
   const summary = transactions.map(t => ({
     type: t.type,
     amount: t.amount,

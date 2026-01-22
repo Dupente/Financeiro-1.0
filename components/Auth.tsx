@@ -1,7 +1,8 @@
 
 import React, { useState, useEffect } from 'react';
-import { Lock, User, ShieldCheck, Eye, EyeOff, Wallet, ArrowRight, Loader2 } from 'lucide-react';
+import { Lock, User, ShieldCheck, Eye, EyeOff, Wallet, ArrowRight, Loader2, UserPlus, LogIn } from 'lucide-react';
 import { db } from '../services/dbService';
+import { supabaseService } from '../services/supabaseService';
 
 interface AuthProps {
   onLogin: () => void;
@@ -9,66 +10,77 @@ interface AuthProps {
 }
 
 export const Auth: React.FC<AuthProps> = ({ onLogin, isDarkMode }) => {
-  const [isFirstTime, setIsFirstTime] = useState<boolean | null>(null);
+  const [mode, setMode] = useState<'login' | 'register'>('login');
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
+  const [isInitializing, setIsInitializing] = useState(true);
 
   useEffect(() => {
-    const checkAuth = async () => {
-      try {
-        await db.init();
-        const savedAuth = await db.getAuthData();
-        setIsFirstTime(!savedAuth);
-      } catch (err) {
-        console.error(err);
-      } finally {
-        setLoading(false);
-      }
-    };
-    checkAuth();
+    db.init().finally(() => setIsInitializing(false));
   }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
+    setLoading(true);
 
-    if (isFirstTime) {
-      if (!username || !password || !confirmPassword) {
-        setError('Preencha todos os campos.');
-        return;
-      }
-      if (password !== confirmPassword) {
-        setError('As senhas não coincidem.');
-        return;
-      }
-      if (password.length < 4) {
-        setError('A senha deve ter pelo menos 4 caracteres.');
+    try {
+      const normalizedUsername = username.trim().toLowerCase();
+
+      if (!normalizedUsername || !password) {
+        setError('Preencha usuário e senha.');
+        setLoading(false);
         return;
       }
 
-      await db.setAuthData({ username, password });
-      onLogin();
-    } else {
-      const savedAuth = await db.getAuthData();
-      if (!savedAuth) {
-        setIsFirstTime(true);
-        setError('Erro ao recuperar dados. Crie um novo acesso.');
-        return;
-      }
+      if (mode === 'register') {
+        if (password !== confirmPassword) {
+          setError('As senhas não coincidem.');
+          setLoading(false);
+          return;
+        }
+        if (password.length < 4) {
+          setError('A senha deve ter pelo menos 4 caracteres.');
+          setLoading(false);
+          return;
+        }
 
-      if (username === savedAuth.username && password === savedAuth.password) {
+        // Verificar se usuário já existe
+        const existing = await supabaseService.fetchUserSettings(normalizedUsername);
+        if (existing) {
+          setError('Este nome de usuário já está em uso.');
+          setLoading(false);
+          return;
+        }
+
+        // Criar Novo Usuário
+        const authData = { username: normalizedUsername, password };
+        await db.setAuthData(authData); // Isso já salva no Supabase
         onLogin();
       } else {
-        setError('Usuário ou senha incorretos.');
+        // Modo Login
+        const userData = await supabaseService.fetchUserSettings(normalizedUsername);
+        
+        if (userData && userData.auth.password === password) {
+          await db.setAuthData(userData.auth);
+          await db.loadUserData(normalizedUsername); // Carrega transações do usuário
+          onLogin();
+        } else {
+          setError('Usuário ou senha incorretos.');
+        }
       }
+    } catch (err) {
+      setError('Erro de conexão com o servidor.');
+    } finally {
+      setLoading(false);
     }
   };
 
-  if (loading) {
+  if (isInitializing) {
     return (
       <div className={`fixed inset-0 flex items-center justify-center ${isDarkMode ? 'bg-slate-950' : 'bg-slate-50'}`}>
         <Loader2 className="animate-spin text-indigo-500" size={48} />
@@ -93,10 +105,10 @@ export const Auth: React.FC<AuthProps> = ({ onLogin, isDarkMode }) => {
             <Wallet size={32} />
           </div>
           <h2 className={`text-2xl font-bold tracking-tight ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>
-            Controle Financeiro Ricardo
+            Ricardo Finance
           </h2>
-          <p className={`text-sm mt-2 ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>
-            {isFirstTime ? 'Defina seu acesso inicial' : 'Bem-vindo de volta! Faça login para continuar.'}
+          <p className={`text-sm mt-2 font-medium ${isDarkMode ? 'text-slate-400' : 'text-slate-500'}`}>
+            {mode === 'login' ? 'Entre com sua conta' : 'Crie seu banco de dados pessoal'}
           </p>
         </div>
 
@@ -115,13 +127,14 @@ export const Auth: React.FC<AuthProps> = ({ onLogin, isDarkMode }) => {
               <User className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-500" size={18} />
               <input
                 type="text"
+                required
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
-                placeholder="Ex: ricardo_finance"
+                placeholder="Ex: ricardo_user"
                 className={`w-full pl-12 pr-4 py-3 rounded-xl border outline-none transition-all ${
                   isDarkMode 
-                  ? 'bg-slate-800 border-slate-700 text-white focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500' 
-                  : 'bg-slate-50 border-slate-200 text-slate-900 focus:border-indigo-600 focus:ring-1 focus:ring-indigo-600'
+                  ? 'bg-slate-800 border-slate-700 text-white focus:border-indigo-500' 
+                  : 'bg-slate-50 border-slate-200 text-slate-900 focus:border-indigo-600'
                 }`}
               />
             </div>
@@ -135,26 +148,27 @@ export const Auth: React.FC<AuthProps> = ({ onLogin, isDarkMode }) => {
               <Lock className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-500" size={18} />
               <input
                 type={showPassword ? "text" : "password"}
+                required
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 placeholder="••••••••"
                 className={`w-full pl-12 pr-12 py-3 rounded-xl border outline-none transition-all ${
                   isDarkMode 
-                  ? 'bg-slate-800 border-slate-700 text-white focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500' 
-                  : 'bg-slate-50 border-slate-200 text-slate-900 focus:border-indigo-600 focus:ring-1 focus:ring-indigo-600'
+                  ? 'bg-slate-800 border-slate-700 text-white focus:border-indigo-500' 
+                  : 'bg-slate-50 border-slate-200 text-slate-900 focus:border-indigo-600'
                 }`}
               />
               <button
                 type="button"
                 onClick={() => setShowPassword(!showPassword)}
-                className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300 transition-colors"
+                className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-500 hover:text-indigo-400 transition-colors"
               >
                 {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
               </button>
             </div>
           </div>
 
-          {isFirstTime && (
+          {mode === 'register' && (
             <div className="space-y-1 animate-in slide-in-from-top-2 duration-300">
               <label className={`text-xs font-bold uppercase ml-1 ${isDarkMode ? 'text-slate-500' : 'text-slate-400'}`}>
                 Confirmar Senha
@@ -163,13 +177,14 @@ export const Auth: React.FC<AuthProps> = ({ onLogin, isDarkMode }) => {
                 <ShieldCheck className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-500" size={18} />
                 <input
                   type={showPassword ? "text" : "password"}
+                  required
                   value={confirmPassword}
                   onChange={(e) => setConfirmPassword(e.target.value)}
                   placeholder="••••••••"
                   className={`w-full pl-12 pr-4 py-3 rounded-xl border outline-none transition-all ${
                     isDarkMode 
-                    ? 'bg-slate-800 border-slate-700 text-white focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500' 
-                    : 'bg-slate-50 border-slate-200 text-slate-900 focus:border-indigo-600 focus:ring-1 focus:ring-indigo-600'
+                    ? 'bg-slate-800 border-slate-700 text-white focus:border-indigo-500' 
+                    : 'bg-slate-50 border-slate-200 text-slate-900 focus:border-indigo-600'
                   }`}
                 />
               </div>
@@ -178,15 +193,38 @@ export const Auth: React.FC<AuthProps> = ({ onLogin, isDarkMode }) => {
 
           <button
             type="submit"
+            disabled={loading}
             className="w-full py-4 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl shadow-lg shadow-indigo-600/30 transition-all flex items-center justify-center gap-2 group active:scale-[0.98]"
           >
-            {isFirstTime ? 'Criar Acesso Mestre' : 'Entrar no Sistema'}
-            <ArrowRight size={18} className="group-hover:translate-x-1 transition-transform" />
+            {loading ? (
+              <Loader2 className="animate-spin" size={20} />
+            ) : (
+              <>
+                {mode === 'login' ? 'Entrar no Sistema' : 'Cadastrar Conta'}
+                <ArrowRight size={18} className="group-hover:translate-x-1 transition-transform" />
+              </>
+            )}
           </button>
+
+          <div className="pt-4 text-center">
+            <button
+              type="button"
+              onClick={() => { setMode(mode === 'login' ? 'register' : 'login'); setError(''); }}
+              className={`text-xs font-bold flex items-center justify-center gap-2 mx-auto transition-colors ${
+                isDarkMode ? 'text-indigo-400 hover:text-indigo-300' : 'text-indigo-600 hover:text-indigo-700'
+              }`}
+            >
+              {mode === 'login' ? (
+                <><UserPlus size={14} /> Não tem conta? Cadastre-se</>
+              ) : (
+                <><LogIn size={14} /> Já tem conta? Faça Login</>
+              )}
+            </button>
+          </div>
         </form>
 
-        <p className={`text-[10px] text-center mt-8 font-medium uppercase tracking-widest ${isDarkMode ? 'text-slate-600' : 'text-slate-400'}`}>
-          Banco de Dados Interno Ativo
+        <p className={`text-[9px] text-center mt-8 font-black uppercase tracking-[0.2em] ${isDarkMode ? 'text-slate-600' : 'text-slate-400'}`}>
+          Nuvem Supabase • Multi-User Mode
         </p>
       </div>
     </div>
