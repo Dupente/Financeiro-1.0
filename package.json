@@ -2,6 +2,7 @@
 {
   "name": "controle-financeiro-ricardo",
   "version": "1.0.0",
+  "homepage": ".",
   "description": "Controle Financeiro Inteligente Ricardo",
   "private": true,
   "type": "module",

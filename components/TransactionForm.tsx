@@ -9,10 +9,8 @@ interface TransactionFormProps {
 }
 
 export const TransactionForm: React.FC<TransactionFormProps> = ({ onSubmit, onCancel, initialData }) => {
-  // Função para calcular o último dia do mês atual no formato YYYY-MM-DD
   const getLastDayOfCurrentMonth = () => {
     const now = new Date();
-    // O dia 0 do próximo mês é o último dia do mês atual
     const lastDay = new Date(now.getFullYear(), now.getMonth() + 1, 0);
     const year = lastDay.getFullYear();
     const month = String(lastDay.getMonth() + 1).padStart(2, '0');
@@ -24,10 +22,10 @@ export const TransactionForm: React.FC<TransactionFormProps> = ({ onSubmit, onCa
     description: '',
     amount: '' as string | number,
     type: TransactionType.EXPENSE,
-    category: 'Moradia', // Inicia selecionado em Moradia
-    date: getLastDayOfCurrentMonth(), // Inicia no último dia do mês
+    category: 'Moradia',
+    date: getLastDayOfCurrentMonth(),
     status: TransactionStatus.PENDING,
-    recurrence: RecurrenceType.FIXED, // Agora inicia como 'Fixa' por padrão
+    recurrence: RecurrenceType.FIXED,
     installmentsCount: 2
   });
 
@@ -68,13 +66,17 @@ export const TransactionForm: React.FC<TransactionFormProps> = ({ onSubmit, onCa
     const startDate = new Date(formData.date);
     startDate.setMinutes(startDate.getMinutes() + startDate.getTimezoneOffset());
 
-    if (formData.recurrence === RecurrenceType.INSTALLMENT) {
+    // Verificamos se estamos EDITANDO e se a recorrência mudou de tipo
+    const isNew = !initialData;
+    const recurrenceChanged = initialData && initialData.recurrence !== formData.recurrence;
+
+    // LÓGICA DE GERAÇÃO DE SÉRIE: Apenas para novos registros ou quando muda o tipo de recorrência
+    if ((isNew || recurrenceChanged) && formData.recurrence === RecurrenceType.INSTALLMENT) {
       const transactions: Transaction[] = [];
       const seriesId = crypto.randomUUID();
       
       for (let i = 0; i < formData.installmentsCount; i++) {
         const installmentDate = getRecurrentDate(startDate, i);
-        
         transactions.push({
           id: crypto.randomUUID(),
           seriesId,
@@ -90,16 +92,14 @@ export const TransactionForm: React.FC<TransactionFormProps> = ({ onSubmit, onCa
         });
       }
       onSubmit(transactions);
-    } else if (formData.recurrence === RecurrenceType.FIXED) {
+    } else if ((isNew || recurrenceChanged) && formData.recurrence === RecurrenceType.FIXED) {
       const transactions: Transaction[] = [];
       const seriesId = crypto.randomUUID();
-      
       const startMonth = startDate.getMonth();
       const monthsUntilEndOfYear = 11 - startMonth;
 
       for (let i = 0; i <= monthsUntilEndOfYear; i++) {
         const fixedDate = getRecurrentDate(startDate, i);
-        
         transactions.push({
           id: crypto.randomUUID(),
           seriesId,
@@ -114,6 +114,9 @@ export const TransactionForm: React.FC<TransactionFormProps> = ({ onSubmit, onCa
       }
       onSubmit(transactions);
     } else {
+      // EDIÇÃO DE UM ÚNICO ITEM OU LANÇAMENTO ÚNICO
+      // Se estamos editando um item recorrente mas não mudamos o tipo de recorrência, 
+      // editamos apenas ESSE item para preservar a integridade da série antiga.
       onSubmit({
         id: initialData?.id || crypto.randomUUID(),
         seriesId: initialData?.seriesId,
@@ -124,6 +127,8 @@ export const TransactionForm: React.FC<TransactionFormProps> = ({ onSubmit, onCa
         date: startDate.toISOString(),
         status: formData.status,
         recurrence: formData.recurrence,
+        installmentNumber: initialData?.installmentNumber,
+        installmentsCount: initialData?.installmentsCount
       } as Transaction);
     }
   };
@@ -203,14 +208,19 @@ export const TransactionForm: React.FC<TransactionFormProps> = ({ onSubmit, onCa
             Parcelada
           </button>
         </div>
-        {formData.recurrence === RecurrenceType.FIXED && (
+        {formData.recurrence === RecurrenceType.FIXED && !initialData && (
           <p className="text-[10px] text-indigo-300 mt-2 ml-1 italic">
             * Transações fixas serão geradas mensalmente até Dezembro deste ano.
           </p>
         )}
+        {initialData && initialData.seriesId && (
+          <p className="text-[10px] text-amber-300 mt-2 ml-1 italic">
+            * Editando item de uma série. Alterações recorrentes exigem novos lançamentos.
+          </p>
+        )}
       </div>
 
-      {formData.recurrence === RecurrenceType.INSTALLMENT && (
+      {formData.recurrence === RecurrenceType.INSTALLMENT && !initialData && (
         <div className="animate-in slide-in-from-top-2 fade-in duration-200">
           <label className={labelStyle}>Número de Parcelas</label>
           <input
@@ -252,7 +262,7 @@ export const TransactionForm: React.FC<TransactionFormProps> = ({ onSubmit, onCa
       </div>
 
       <div>
-        <label className={labelStyle}>Status (Primeiro Mês)</label>
+        <label className={labelStyle}>Status (Mês Atual)</label>
         <div className="flex gap-2 p-1 bg-slate-950 rounded-xl">
           <button
             type="button"

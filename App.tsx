@@ -61,7 +61,6 @@ const App: React.FC = () => {
         if (authData?.username) {
           setCurrentUser(authData.username);
           setIsAuthenticated(true);
-          // Começa a carregar dados em background para mostrar skeletons
           setIsLoadingData(true);
           const allTransactions = await db.getAllTransactions();
           setTransactions(allTransactions);
@@ -95,7 +94,8 @@ const App: React.FC = () => {
   const handleAddTransactions = async (newItems: Transaction | Transaction[]) => {
     await triggerSyncFeedback(async () => {
       const itemsToAdd = Array.isArray(newItems) ? newItems : [newItems];
-      if (editingTransaction) await db.deleteTransaction(editingTransaction.id);
+      // O db.saveTransactions já faz o upsert pelo ID. 
+      // Não deletamos mais o editingTransaction.id manualmente para evitar duplicatas e inconsistências.
       await db.saveTransactions(itemsToAdd);
       const updated = await db.getAllTransactions();
       setTransactions(updated);
@@ -227,7 +227,6 @@ const App: React.FC = () => {
 
   const monthName = `${currentDate.toLocaleString('pt-BR', { month: 'long' })} ${currentDate.getFullYear()}`;
 
-  // Splash Screen apenas na inicialização absoluta (antes de saber quem é o usuário)
   if (isInitializing) {
     return (
       <div className={`fixed inset-0 flex flex-col items-center justify-center ${isDarkMode ? 'bg-slate-950 text-white' : 'bg-slate-50 text-slate-900'}`}>

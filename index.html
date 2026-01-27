@@ -77,8 +77,8 @@
 </head>
 <body>
     <div id="root"></div>
-    <!-- Ponto de entrada crítico para o deploy na Vercel -->
-    <script type="module" src="/index.tsx"></script>
+    <!-- Ponto de entrada ajustado para caminho relativo -->
+    <script type="module" src="./index.tsx"></script>
     <script>
         if ('serviceWorker' in navigator) {
             window.addEventListener('load', () => {
