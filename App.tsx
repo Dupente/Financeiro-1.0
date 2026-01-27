@@ -27,10 +27,10 @@ import {
   CheckCircle2,
   Cloud,
   LogOut,
-  User as UserIcon,
   RefreshCw,
   AlertCircle,
-  Check
+  Check,
+  Sparkle
 } from 'lucide-react';
 
 const App: React.FC = () => {
@@ -94,8 +94,6 @@ const App: React.FC = () => {
   const handleAddTransactions = async (newItems: Transaction | Transaction[]) => {
     await triggerSyncFeedback(async () => {
       const itemsToAdd = Array.isArray(newItems) ? newItems : [newItems];
-      // O db.saveTransactions já faz o upsert pelo ID. 
-      // Não deletamos mais o editingTransaction.id manualmente para evitar duplicatas e inconsistências.
       await db.saveTransactions(itemsToAdd);
       const updated = await db.getAllTransactions();
       setTransactions(updated);
@@ -120,7 +118,7 @@ const App: React.FC = () => {
     await triggerSyncFeedback(async () => {
       if (mode === 'single') {
         await db.deleteTransaction(transactionToDelete.id);
-        setTransactions(prev => prev.filter(t => t.id !== transactionToDelete.id));
+        setTransactions(prev => prev.filter(t => transactionToDelete.id !== t.id));
       } else if (mode === 'future') {
         const deleteDate = new Date(transactionToDelete.date);
         const toDelete = transactions.filter(t => {
@@ -198,12 +196,19 @@ const App: React.FC = () => {
   }, [transactions, currentDate]);
 
   const stats = useMemo(() => {
+    const today = new Date();
+    today.setHours(23, 59, 59, 999); 
+
     const globalBalance = transactions.reduce((acc, t) => {
       if (t.status === TransactionStatus.PAID) {
-        return t.type === TransactionType.INCOME ? acc + t.amount : acc - t.amount;
+        const effectiveDate = new Date(t.paymentDate || t.date);
+        if (effectiveDate <= today) {
+          return t.type === TransactionType.INCOME ? acc + Number(t.amount) : acc - Number(t.amount);
+        }
       }
       return acc;
     }, 0);
+
     const monthly = filteredTransactions.reduce((acc, t) => {
       const amount = Number(t.amount);
       if (t.type === TransactionType.INCOME) {
@@ -215,8 +220,18 @@ const App: React.FC = () => {
       }
       return acc;
     }, { totalIncome: 0, totalExpenses: 0, paidIncome: 0, paidExpenses: 0 });
-    const pendingBalance = (monthly.totalIncome - monthly.paidIncome) - (monthly.totalExpenses - monthly.paidExpenses);
-    return { ...monthly, balance: globalBalance, pendingBalance };
+
+    const monthlyBalance = monthly.totalIncome - monthly.totalExpenses;
+    const realizedBalance = monthly.paidIncome - monthly.paidExpenses;
+    const pendingBalance = monthlyBalance - realizedBalance;
+
+    return { 
+      ...monthly, 
+      balance: globalBalance, 
+      monthlyBalance, 
+      realizedBalance,
+      pendingBalance 
+    };
   }, [transactions, filteredTransactions]);
 
   const changeMonth = (offset: number) => {
@@ -226,6 +241,10 @@ const App: React.FC = () => {
   };
 
   const monthName = `${currentDate.toLocaleString('pt-BR', { month: 'long' })} ${currentDate.getFullYear()}`;
+
+  const formatDescriptionValue = (val: number) => {
+    return Math.abs(val).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  };
 
   if (isInitializing) {
     return (
@@ -248,43 +267,46 @@ const App: React.FC = () => {
     <div className={`min-h-screen transition-colors duration-300 ${isDarkMode ? 'bg-slate-950 text-slate-100' : 'bg-slate-50 text-slate-900'} pb-24 md:pb-10`}>
       
       {syncStatus !== 'idle' && (
-        <div className="fixed top-6 left-0 right-0 z-[250] flex justify-center px-4 pointer-events-none animate-in slide-in-from-top-full duration-500">
+        <div className="fixed top-8 left-0 right-0 z-[250] flex justify-center px-6 pointer-events-none animate-in slide-in-from-top-full fade-in duration-700 ease-out">
           <div className={`
-            pointer-events-auto flex items-center gap-4 px-6 py-3.5 rounded-[1.5rem] border shadow-2xl backdrop-blur-2xl transition-all duration-500
+            pointer-events-auto flex items-center gap-4 p-2 pr-6 rounded-full border transition-all duration-500 shadow-2xl backdrop-blur-3xl
             ${syncStatus === 'syncing' 
               ? (isDarkMode 
-                  ? 'bg-gradient-to-r from-indigo-600/30 to-violet-600/30 border-indigo-500/40 text-indigo-100' 
-                  : 'bg-gradient-to-r from-indigo-50 to-indigo-100 border-indigo-200 text-indigo-700') 
+                  ? 'bg-slate-900/90 border-indigo-500/30 text-indigo-100 shadow-indigo-500/10' 
+                  : 'bg-white/95 border-indigo-200 text-indigo-900 shadow-indigo-200/50') 
               : syncStatus === 'success'
                 ? (isDarkMode 
-                    ? 'bg-gradient-to-r from-emerald-600/30 to-teal-600/30 border-emerald-500/40 text-emerald-100' 
-                    : 'bg-gradient-to-r from-emerald-50 to-teal-50 border-emerald-200 text-emerald-700')
+                    ? 'bg-slate-900/90 border-emerald-500/30 text-emerald-100 shadow-emerald-500/10' 
+                    : 'bg-white/95 border-emerald-200 text-emerald-900 shadow-emerald-200/50')
                 : (isDarkMode 
-                    ? 'bg-gradient-to-r from-rose-600/30 to-orange-600/30 border-rose-500/40 text-rose-100 animate-shake' 
-                    : 'bg-gradient-to-r from-rose-50 to-orange-50 border-rose-200 text-rose-700 animate-shake')
+                    ? 'bg-slate-900/90 border-rose-500/30 text-rose-100 animate-shake shadow-rose-500/10' 
+                    : 'bg-white/95 border-rose-200 text-rose-900 animate-shake shadow-rose-200/50')
             }
           `}>
             <div className={`
-              flex items-center justify-center w-10 h-10 rounded-2xl shadow-inner
+              flex items-center justify-center w-12 h-12 rounded-full shadow-inner transition-colors duration-500
               ${syncStatus === 'syncing' 
-                ? (isDarkMode ? 'bg-indigo-500/30' : 'bg-white shadow-indigo-100') 
+                ? 'bg-gradient-to-tr from-indigo-600 to-indigo-400' 
                 : syncStatus === 'success' 
-                  ? (isDarkMode ? 'bg-emerald-500/30' : 'bg-white shadow-emerald-100') 
-                  : (isDarkMode ? 'bg-rose-500/30' : 'bg-white shadow-rose-100')}
+                  ? 'bg-gradient-to-tr from-emerald-600 to-emerald-400' 
+                  : 'bg-gradient-to-tr from-rose-600 to-rose-400'}
             `}>
-              {syncStatus === 'syncing' && <RefreshCw size={20} className="animate-spin text-indigo-500" />}
-              {syncStatus === 'success' && <Check size={22} className="animate-bounce text-emerald-500" strokeWidth={3} />}
-              {syncStatus === 'error' && <AlertCircle size={22} className="animate-pulse text-rose-500" strokeWidth={3} />}
+              {syncStatus === 'syncing' && <RefreshCw size={22} className="animate-spin text-white" strokeWidth={3} />}
+              {syncStatus === 'success' && <Check size={24} className="animate-bounce text-white" strokeWidth={4} />}
+              {syncStatus === 'error' && <AlertCircle size={24} className="animate-pulse text-white" strokeWidth={4} />}
             </div>
             
-            <div className="flex flex-col pr-1">
-              <span className={`text-[10px] font-black uppercase tracking-[0.2em] opacity-70 leading-none mb-1.5 ${isDarkMode ? 'text-white' : 'text-slate-500'}`}>
-                Cloud Sync
-              </span>
-              <span className="text-sm font-black tracking-tight whitespace-nowrap">
-                {syncStatus === 'syncing' && 'Sincronizando com Supabase...'}
-                {syncStatus === 'success' && 'Nuvem atualizada com sucesso'}
-                {syncStatus === 'error' && 'Erro na sincronização remota'}
+            <div className="flex flex-col">
+              <div className="flex items-center gap-2 mb-0.5">
+                <Sparkle size={10} className={`${syncStatus === 'syncing' ? 'animate-pulse text-indigo-400' : 'text-slate-400'}`} />
+                <span className={`text-[9px] font-black uppercase tracking-[0.2em] opacity-60 leading-none ${isDarkMode ? 'text-white' : 'text-slate-50'}`}>
+                  Nuvem Supabase
+                </span>
+              </div>
+              <span className={`text-sm font-black tracking-tight whitespace-nowrap ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>
+                {syncStatus === 'syncing' && 'Sincronizando transações...'}
+                {syncStatus === 'success' && 'Sincronização concluída'}
+                {syncStatus === 'error' && 'Erro ao sincronizar dados'}
               </span>
             </div>
           </div>
@@ -292,30 +314,25 @@ const App: React.FC = () => {
       )}
 
       <header className={`border-b sticky top-0 z-30 px-4 py-4 sm:px-6 transition-colors duration-300 ${isDarkMode ? 'bg-slate-900/80 border-slate-800 shadow-lg shadow-black/20 backdrop-blur-md' : 'bg-white/80 border-slate-200 shadow-sm backdrop-blur-md'}`}>
-        <div className="max-w-[1600px] mx-auto flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="bg-indigo-600 p-2.5 rounded-2xl text-white shadow-lg shadow-indigo-600/20">
+        <div className="max-w-[1600px] mx-auto flex items-center justify-between gap-4">
+          
+          <div className="flex items-center">
+            <div className="bg-indigo-600 p-2.5 rounded-2xl text-white shadow-lg shadow-indigo-600/20 active:scale-95 transition-transform cursor-pointer">
               <Wallet size={24} />
-            </div>
-            <div className="hidden sm:block">
-              <h1 className="text-xl font-black tracking-tight leading-none mb-1 text-slate-900 dark:text-white">Ricardo Finance</h1>
-              <div className="flex items-center gap-2">
-                <div className={`flex items-center gap-1.5 px-2 py-0.5 rounded-full border text-[9px] font-black uppercase tracking-wider ${
-                  dbStatus.connected 
-                  ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-500' 
-                  : 'bg-rose-500/10 border-rose-500/20 text-rose-500'
-                }`}>
-                  <Cloud size={10} className="animate-pulse" />
-                  Supabase Ativo
-                </div>
-              </div>
             </div>
           </div>
 
-          <div className="flex items-center gap-2 sm:gap-4">
-            <div className="hidden lg:flex items-center gap-2 px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800/50">
-               <UserIcon size={14} className="text-indigo-500" />
-               <span className="text-xs font-bold truncate max-w-[100px]">{currentUser || 'Usuário'}</span>
+          <div className="flex-1 flex justify-center overflow-hidden">
+            <h1 className="text-lg md:text-xl font-black tracking-[0.15em] leading-none text-slate-900 dark:text-white uppercase truncate text-center">
+              Ricardo Finance
+            </h1>
+          </div>
+
+          <div className="flex items-center gap-2 sm:gap-4 flex-shrink-0">
+            <div className={`hidden lg:flex items-center px-5 py-2.5 rounded-xl transition-all shadow-xl bg-emerald-600 shadow-emerald-600/20 cursor-default active:scale-95 group`}>
+              <span className={`text-sm font-black text-white truncate max-w-[120px] tracking-tight capitalize group-hover:scale-105 transition-transform`}>
+                {currentUser || 'Ricardo'}
+              </span>
             </div>
 
             <button onClick={() => setIsDarkMode(!isDarkMode)} title="Alternar Tema" className={`p-2.5 rounded-xl transition-all ${isDarkMode ? 'bg-slate-800 text-amber-400 hover:bg-slate-700' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}>
@@ -335,10 +352,10 @@ const App: React.FC = () => {
               <LogOut size={20} strokeWidth={2.5} />
             </button>
 
-            <div className={`flex items-center rounded-xl p-1 transition-colors ${isDarkMode ? 'bg-slate-800' : 'bg-slate-100'}`}>
-              <button onClick={() => changeMonth(-1)} className="p-1.5"><ChevronLeft size={20} /></button>
-              <span className="px-3 py-1 font-bold text-xs sm:text-sm capitalize w-20 sm:w-40 text-center truncate">{monthName}</span>
-              <button onClick={() => changeMonth(1)} className="p-1.5"><ChevronRight size={20} /></button>
+            <div className={`hidden sm:flex items-center rounded-xl p-1 transition-colors ${isDarkMode ? 'bg-slate-800' : 'bg-slate-100'}`}>
+              <button onClick={() => changeMonth(-1)} className="p-1.5 hover:text-indigo-500 transition-colors"><ChevronLeft size={20} /></button>
+              <span className="px-3 py-1 font-bold text-xs sm:text-sm capitalize w-40 text-center truncate">{monthName}</span>
+              <button onClick={() => changeMonth(1)} className="p-1.5 hover:text-indigo-500 transition-colors"><ChevronRight size={20} /></button>
             </div>
             
             <button onClick={() => { setEditingTransaction(null); setIsFormOpen(true); }} className="bg-indigo-600 hover:bg-indigo-700 text-white px-5 py-2.5 rounded-xl flex items-center gap-2 shadow-xl shadow-indigo-600/20 font-bold active:scale-95">
@@ -359,10 +376,10 @@ const App: React.FC = () => {
             </>
           ) : (
             <>
-              <Dashboard title="Saldo Geral" value={stats.balance} icon={<Wallet className="text-white" size={20} />} color="bg-emerald-500" description="Saldo pago acumulado" isDarkMode={isDarkMode} />
-              <Dashboard title="Receitas do Mês" value={stats.totalIncome} icon={<TrendingUp className="text-white" size={20} />} color="bg-blue-500" description={`Liquidado: R$ ${stats.paidIncome.toFixed(2)}`} isDarkMode={isDarkMode} />
-              <Dashboard title="Despesas do Mês" value={stats.totalExpenses} icon={<TrendingDown className="text-white" size={20} />} color="bg-rose-500" description={`Liquidado: R$ ${stats.paidExpenses.toFixed(2)}`} isDarkMode={isDarkMode} />
-              <Dashboard title="Balanço Pendente" value={stats.pendingBalance} icon={<Calendar className="text-white" size={20} />} color="bg-amber-500" description="A liquidar no mês" isDarkMode={isDarkMode} />
+              <Dashboard title="Saldo Geral" value={stats.balance} icon={<Wallet className="text-white" size={20} />} color="bg-indigo-600" description="Saldo Disponível" isDarkMode={isDarkMode} />
+              <Dashboard title="Receitas do Mês" value={stats.totalIncome} icon={<TrendingUp className="text-white" size={20} />} color="bg-blue-500" description={`Recebido: R$ ${formatDescriptionValue(stats.paidIncome)}`} isDarkMode={isDarkMode} />
+              <Dashboard title="Despesas do Mês" value={stats.totalExpenses} icon={<TrendingDown className="text-white" size={20} />} color="bg-rose-500" description={`Pago: R$ ${formatDescriptionValue(stats.paidExpenses)}`} isDarkMode={isDarkMode} />
+              <Dashboard title="Balanço Mensal" value={stats.monthlyBalance} icon={<Calendar className="text-white" size={20} />} color="bg-amber-500" description={`Realizado: R$ ${formatDescriptionValue(stats.realizedBalance)}`} isDarkMode={isDarkMode} />
             </>
           )}
         </section>
@@ -380,9 +397,6 @@ const App: React.FC = () => {
                     </span>
                   )}
                 </h2>
-                <div className="text-[10px] text-slate-500 font-black uppercase tracking-widest flex items-center gap-2">
-                  <Database size={14} className="text-emerald-500" /> Cloud Sync: OK
-                </div>
               </div>
               
               {isLoadingData ? (
@@ -395,7 +409,7 @@ const App: React.FC = () => {
           <aside className="xl:col-span-1 space-y-6">
             <UpcomingAlerts transactions={transactions} isDarkMode={isDarkMode} />
             <AIAdvisor transactions={filteredTransactions} />
-            <BackupManager onDataRestored={handleRefreshData} isDarkMode={isDarkMode} />
+            <BackupManager onDataRestored={handleRefreshData} isDarkMode={isDarkMode} syncStatus={syncStatus} />
           </aside>
         </div>
       </main>
@@ -443,7 +457,7 @@ const App: React.FC = () => {
 
       {transactionToDelete && (
         <div className="fixed inset-0 z-[170] flex items-center justify-center p-4 bg-slate-950/85 backdrop-blur-lg">
-          <div className="border rounded-[2.5rem] bg-slate-900 border-slate-800 p-10 text-center space-y-8 w-full max-w-sm">
+          <div className="border rounded-[2.5rem] bg-slate-900 border-slate-800 p-10 text-center space-y-8 w-full max-sm:p-6 w-full max-w-sm">
             <div className="mx-auto w-20 h-20 bg-rose-500/20 rounded-3xl flex items-center justify-center text-rose-500 shadow-xl shadow-rose-500/10">
               <AlertTriangle size={40} />
             </div>

@@ -81,7 +81,7 @@ export const UpcomingAlerts: React.FC<UpcomingAlertsProps> = ({ transactions, is
               </div>
               <div className="text-right ml-2">
                 <span className={`text-xs font-bold block ${t.type === TransactionType.INCOME ? 'text-emerald-500' : 'text-rose-500'}`}>
-                  {t.type === TransactionType.INCOME ? '+' : '-'} {t.amount.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                  {Math.abs(t.amount).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
                 </span>
               </div>
             </div>

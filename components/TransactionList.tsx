@@ -4,7 +4,7 @@ import { Transaction, TransactionType, TransactionStatus } from '../types';
 import { 
   Edit2, Trash2, CheckCircle, Clock, Tag, RotateCcw, 
   Check, Filter, X, Search, ArrowUpAZ, ArrowDownZA, SortAsc,
-  ChevronUp, ChevronDown, ChevronLeft, ChevronRight
+  ChevronUp, ChevronDown, ChevronLeft, ChevronRight, Database
 } from 'lucide-react';
 
 interface TransactionListProps {
@@ -59,7 +59,6 @@ export const TransactionList: React.FC<TransactionListProps> = ({
   }, [transactions]);
 
   const processedTransactions = useMemo(() => {
-    // 1. Filtragem
     let result = transactions.filter(t => {
       const matchStatus = filters.status === '' || t.status === filters.status;
       const matchDesc = t.description.toLowerCase().includes(filters.description.toLowerCase());
@@ -73,7 +72,6 @@ export const TransactionList: React.FC<TransactionListProps> = ({
       return matchStatus && matchDesc && matchCat && matchDate && matchPayDate && matchAmount;
     });
 
-    // 2. Ordenação Refinada
     if (sortConfig.key && sortConfig.direction) {
       result.sort((a, b) => {
         const key = sortConfig.key as SortKey;
@@ -82,27 +80,23 @@ export const TransactionList: React.FC<TransactionListProps> = ({
         let valA: any = a[key];
         let valB: any = b[key];
 
-        // Tratamento para Datas
         if (key === 'date' || key === 'paymentDate') {
           const timeA = valA ? new Date(valA).getTime() : 0;
           const timeB = valB ? new Date(valB).getTime() : 0;
           return (timeA - timeB) * direction;
         }
 
-        // Tratamento para Números (Valor/Amount)
         if (key === 'amount') {
           const numA = Number(valA) || 0;
           const numB = Number(valB) || 0;
           return (numA - numB) * direction;
         }
 
-        // Tratamento para Strings (Descrição, Categoria)
         const strA = String(valA || '').toLowerCase();
         const strB = String(valB || '').toLowerCase();
         return strA.localeCompare(strB) * direction;
       });
     } else {
-      // Ordenação padrão: Data de Vencimento descendente
       result.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
     }
 
@@ -198,10 +192,12 @@ export const TransactionList: React.FC<TransactionListProps> = ({
             </button>
           )}
         </div>
-        
-        <span className={`text-[10px] font-bold uppercase tracking-tighter ${isDarkMode ? 'text-slate-500' : 'text-slate-400'}`}>
-          {processedTransactions.length} registros encontrados
-        </span>
+
+        <div className="flex items-center gap-4">
+          <span className={`text-[10px] font-bold uppercase tracking-tighter ${isDarkMode ? 'text-slate-500' : 'text-slate-400'}`}>
+            {processedTransactions.length} registros encontrados
+          </span>
+        </div>
       </div>
 
       <div className="overflow-x-auto w-full">
@@ -345,9 +341,11 @@ export const TransactionList: React.FC<TransactionListProps> = ({
                   {t.paymentDate ? new Date(t.paymentDate).toLocaleDateString('pt-BR') : '-'}
                 </td>
                 <td className={`px-6 py-4 text-right font-bold text-sm whitespace-nowrap ${
-                  t.type === TransactionType.INCOME ? 'text-emerald-500' : 'text-rose-500'
+                  Math.abs(t.amount) < 0.001 
+                  ? 'text-emerald-500' 
+                  : (t.type === TransactionType.INCOME ? 'text-emerald-500' : 'text-rose-500')
                 }`}>
-                  {t.type === TransactionType.INCOME ? '+' : '-'} {t.amount.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                  {Math.abs(t.amount).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
                 </td>
                 <td className="px-6 py-4">
                   <div className="flex items-center justify-center gap-1 opacity-100 sm:opacity-0 group-hover:opacity-100 transition-opacity">
@@ -387,7 +385,6 @@ export const TransactionList: React.FC<TransactionListProps> = ({
         )}
       </div>
 
-      {/* Footer com Paginação */}
       <div className={`px-6 py-4 border-t flex flex-col sm:flex-row items-center justify-between gap-4 ${isDarkMode ? 'border-slate-800' : 'border-slate-50'}`}>
         <div className="text-[10px] font-black uppercase tracking-widest text-slate-500">
           Página {currentPage} de {totalPages}

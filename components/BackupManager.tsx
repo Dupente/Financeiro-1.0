@@ -1,12 +1,13 @@
 
 import React, { useRef, useState } from 'react';
-import { Upload, Database, Save, FileCheck, Loader2, Info, X, AlertCircle, CheckCircle2 } from 'lucide-react';
+import { Upload, Database, Save, FileCheck, Loader2, Info, X, AlertCircle, CheckCircle2, Cloud, RefreshCw } from 'lucide-react';
 import { db, DBFileSchema } from '../services/dbService';
 import { TransactionType } from '../types';
 
 interface BackupManagerProps {
   onDataRestored: () => void;
   isDarkMode: boolean;
+  syncStatus?: 'idle' | 'syncing' | 'success' | 'error';
 }
 
 interface BackupPreview {
@@ -17,7 +18,7 @@ interface BackupPreview {
   rawData: DBFileSchema;
 }
 
-export const BackupManager: React.FC<BackupManagerProps> = ({ onDataRestored, isDarkMode }) => {
+export const BackupManager: React.FC<BackupManagerProps> = ({ onDataRestored, isDarkMode, syncStatus = 'idle' }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [isProcessing, setIsProcessing] = useState(false);
   const [preview, setPreview] = useState<BackupPreview | null>(null);
@@ -99,6 +100,41 @@ export const BackupManager: React.FC<BackupManagerProps> = ({ onDataRestored, is
     }
   };
 
+  const getSyncStatusContent = () => {
+    switch (syncStatus) {
+      case 'syncing':
+        return { 
+          label: 'Sincronizando...', 
+          color: 'text-indigo-500', 
+          bg: 'bg-indigo-500/10', 
+          icon: <RefreshCw size={14} className="animate-spin" /> 
+        };
+      case 'success':
+        return { 
+          label: 'Atualizado', 
+          color: 'text-emerald-500', 
+          bg: 'bg-emerald-500/10', 
+          icon: <CheckCircle2 size={14} /> 
+        };
+      case 'error':
+        return { 
+          label: 'Erro na Nuvem', 
+          color: 'text-rose-500', 
+          bg: 'bg-rose-500/10', 
+          icon: <AlertCircle size={14} /> 
+        };
+      default:
+        return { 
+          label: 'Conectado', 
+          color: 'text-emerald-500', 
+          bg: 'bg-emerald-500/5', 
+          icon: <Cloud size={14} /> 
+        };
+    }
+  };
+
+  const syncInfo = getSyncStatusContent();
+
   return (
     <>
       <div className={`p-6 rounded-2xl border shadow-sm transition-colors ${
@@ -117,7 +153,7 @@ export const BackupManager: React.FC<BackupManagerProps> = ({ onDataRestored, is
           Sincronize ou restaure seus dados locais. A restauração substitui todos os lançamentos atuais.
         </p>
 
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-2 gap-3 mb-6">
           <button
             onClick={handleExport}
             disabled={isProcessing}
@@ -145,6 +181,26 @@ export const BackupManager: React.FC<BackupManagerProps> = ({ onDataRestored, is
               {isProcessing ? 'Lendo...' : 'RESTAURAR'}
             </span>
           </button>
+        </div>
+
+        {/* Status da Sincronização Supabase */}
+        <div className={`p-3.5 rounded-xl border flex items-center justify-between group transition-all backdrop-blur-sm ${
+          isDarkMode ? 'bg-slate-800/40 border-slate-700/50' : 'bg-slate-50/50 border-slate-100'
+        }`}>
+          <div className="flex flex-col gap-0.5 overflow-hidden">
+            <span className={`text-[10px] font-black uppercase tracking-widest leading-none ${isDarkMode ? 'text-slate-500' : 'text-slate-400'}`}>
+              Sincronização Supabase
+            </span>
+            <div className="flex items-center gap-1.5 mt-1">
+               <span className={`flex h-1.5 w-1.5 rounded-full ${syncInfo.color.replace('text', 'bg')} ${syncStatus === 'syncing' ? 'animate-pulse' : ''}`}></span>
+               <span className={`text-xs font-bold truncate ${isDarkMode ? 'text-slate-200' : 'text-slate-700'}`}>
+                {syncInfo.label}
+              </span>
+            </div>
+          </div>
+          <div className={`p-2 rounded-lg ${syncInfo.bg} ${syncInfo.color}`}>
+            {syncInfo.icon}
+          </div>
         </div>
 
         <input
