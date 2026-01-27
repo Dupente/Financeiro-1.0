@@ -59,20 +59,34 @@ const App: React.FC = () => {
         setIsDarkMode(!!darkMode);
         
         const authData = await db.getAuthData();
+        
+        // Se temos dados de autenticação, o app já pode sair do estado de "inicialização total"
+        // e entrar no estado de "carregamento de dados" para exibir skeletons
         if (authData?.username) {
           setCurrentUser(authData.username);
           setIsAuthenticated(true);
+          
+          // Liberamos o loader de tela cheia imediatamente após confirmar que o usuário está logado
+          setIsInitializing(false);
+          
+          // Iniciamos o carregamento dos dados (Supabase/Cache pesado)
           setIsLoadingData(true);
+          
+          // Opcional: Forçar um refresh da nuvem no início para garantir dados atualizados
+          await db.loadUserData(authData.username);
+          
           const allTransactions = await db.getAllTransactions();
           setTransactions(allTransactions);
+          
+          const count = await db.countTransactions();
+          setDbStatus({ connected: true, count });
           setIsLoadingData(false);
+        } else {
+          // Se não estiver logado, apenas para de inicializar para mostrar a tela de Auth
+          setIsInitializing(false);
         }
-        
-        const count = await db.countTransactions();
-        setDbStatus({ connected: true, count });
       } catch (err) {
         console.error("Falha ao inicializar app:", err);
-      } finally {
         setIsInitializing(false);
       }
     };
@@ -96,7 +110,6 @@ const App: React.FC = () => {
     const itemsArray = Array.isArray(newItems) ? newItems : [newItems];
     const isSingleUpdate = !Array.isArray(newItems) && editingTransaction && itemsArray[0].id === editingTransaction.id;
 
-    // Se for edição de um item que pertence a uma série, perguntar o modo
     if (isSingleUpdate && editingTransaction?.seriesId) {
       setTransactionToUpdateMode(itemsArray[0]);
       setIsFormOpen(false);
@@ -127,10 +140,7 @@ const App: React.FC = () => {
         });
 
         const updatedItems = toUpdate.map(t => {
-          // Se for o item original, usa os dados completos dele
           if (t.id === transactionToUpdateMode.id) return transactionToUpdateMode;
-          
-          // Para os outros da série, atualiza campos comuns mas preserva datas originais e parcelamento
           return {
             ...t,
             description: transactionToUpdateMode.description.split(' (')[0] + (t.recurrence === RecurrenceType.INSTALLMENT ? ` (${t.installmentNumber}/${t.installmentsCount})` : ' (Fixo)'),
@@ -270,15 +280,22 @@ const App: React.FC = () => {
     }, { totalIncome: 0, totalExpenses: 0, paidIncome: 0, paidExpenses: 0 });
 
     const monthlyBalance = monthly.totalIncome - monthly.totalExpenses;
-    const realizedBalance = monthly.paidIncome - monthly.paidExpenses;
-    const pendingBalance = monthlyBalance - realizedBalance;
+    
+    // Balanço Realizado = diferença entre 'totalIncome' e 'paidIncome' (o que falta receber)
+    // Balanço Pendente = diferença entre 'totalExpenses' e 'paidExpenses' (o que falta pagar)
+    const realizedBalance = monthly.totalIncome - monthly.paidIncome;
+    const pendingBalance = monthly.totalExpenses - monthly.paidExpenses;
+    
+    // Adicionamos o saldo real (recebido - pago) para manter a utilidade do dashboard
+    const actualPaidBalance = monthly.paidIncome - monthly.paidExpenses;
 
     return { 
       ...monthly, 
       balance: globalBalance, 
       monthlyBalance, 
       realizedBalance,
-      pendingBalance 
+      pendingBalance,
+      actualPaidBalance
     };
   }, [transactions, filteredTransactions]);
 
@@ -425,9 +442,9 @@ const App: React.FC = () => {
           ) : (
             <>
               <Dashboard title="Saldo Geral" value={stats.balance} icon={<Wallet className="text-white" size={20} />} color="bg-indigo-600" description="Saldo Disponível" isDarkMode={isDarkMode} />
-              <Dashboard title="Receitas do Mês" value={stats.totalIncome} icon={<TrendingUp className="text-white" size={20} />} color="bg-blue-500" description={`Recebido: R$ ${formatDescriptionValue(stats.paidIncome)}`} isDarkMode={isDarkMode} />
-              <Dashboard title="Despesas do Mês" value={stats.totalExpenses} icon={<TrendingDown className="text-white" size={20} />} color="bg-rose-500" description={`Pago: R$ ${formatDescriptionValue(stats.paidExpenses)}`} isDarkMode={isDarkMode} />
-              <Dashboard title="Balanço Mensal" value={stats.monthlyBalance} icon={<Calendar className="text-white" size={20} />} color="bg-amber-500" description={`Realizado: R$ ${formatDescriptionValue(stats.realizedBalance)}`} isDarkMode={isDarkMode} />
+              <Dashboard title="Receitas do Mês" value={stats.totalIncome} icon={<TrendingUp className="text-white" size={20} />} color="bg-blue-500" description={`A Receber: R$ ${formatDescriptionValue(stats.realizedBalance)}`} isDarkMode={isDarkMode} />
+              <Dashboard title="Despesas do Mês" value={stats.totalExpenses} icon={<TrendingDown className="text-white" size={20} />} color="bg-rose-500" description={`A Pagar: R$ ${formatDescriptionValue(stats.pendingBalance)}`} isDarkMode={isDarkMode} />
+              <Dashboard title="Balanço Mensal" value={stats.monthlyBalance} icon={<Calendar className="text-white" size={20} />} color="bg-amber-500" description={`Saldo Pago: R$ ${formatDescriptionValue(stats.actualPaidBalance)}`} isDarkMode={isDarkMode} />
             </>
           )}
         </section>
