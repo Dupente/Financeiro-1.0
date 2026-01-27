@@ -31,8 +31,11 @@ export const TransactionForm: React.FC<TransactionFormProps> = ({ onSubmit, onCa
 
   useEffect(() => {
     if (initialData) {
+      // Limpar o sufixo "(Fixo)" se existir para manter a descrição limpa no formulário
+      const cleanDescription = initialData.description.replace(' (Fixo)', '');
+      
       setFormData({
-        description: initialData.description,
+        description: cleanDescription,
         amount: initialData.amount,
         type: initialData.type,
         category: initialData.category,
@@ -66,11 +69,9 @@ export const TransactionForm: React.FC<TransactionFormProps> = ({ onSubmit, onCa
     const startDate = new Date(formData.date);
     startDate.setMinutes(startDate.getMinutes() + startDate.getTimezoneOffset());
 
-    // Verificamos se estamos EDITANDO e se a recorrência mudou de tipo
     const isNew = !initialData;
     const recurrenceChanged = initialData && initialData.recurrence !== formData.recurrence;
 
-    // LÓGICA DE GERAÇÃO DE SÉRIE: Apenas para novos registros ou quando muda o tipo de recorrência
     if ((isNew || recurrenceChanged) && formData.recurrence === RecurrenceType.INSTALLMENT) {
       const transactions: Transaction[] = [];
       const seriesId = crypto.randomUUID();
@@ -103,7 +104,7 @@ export const TransactionForm: React.FC<TransactionFormProps> = ({ onSubmit, onCa
         transactions.push({
           id: crypto.randomUUID(),
           seriesId,
-          description: `${formData.description} (Fixo)`,
+          description: formData.description, // Removido sufixo "(Fixo)"
           amount: numericAmount,
           type: formData.type,
           category: formData.category,
@@ -114,9 +115,6 @@ export const TransactionForm: React.FC<TransactionFormProps> = ({ onSubmit, onCa
       }
       onSubmit(transactions);
     } else {
-      // EDIÇÃO DE UM ÚNICO ITEM OU LANÇAMENTO ÚNICO
-      // Se estamos editando um item recorrente mas não mudamos o tipo de recorrência, 
-      // editamos apenas ESSE item para preservar a integridade da série antiga.
       onSubmit({
         id: initialData?.id || crypto.randomUUID(),
         seriesId: initialData?.seriesId,
