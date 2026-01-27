@@ -44,6 +44,7 @@ const App: React.FC = () => {
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [editingTransaction, setEditingTransaction] = useState<Transaction | null>(null);
   const [transactionToDelete, setTransactionToDelete] = useState<Transaction | null>(null);
+  const [transactionToUpdateMode, setTransactionToUpdateMode] = useState<Transaction | null>(null);
   const [transactionToPay, setTransactionToPay] = useState<Transaction | null>(null);
   const [paymentDate, setPaymentDate] = useState(new Date().toISOString().split('T')[0]);
   const [paymentAmount, setPaymentAmount] = useState<number | string>(0);
@@ -91,13 +92,60 @@ const App: React.FC = () => {
     }
   };
 
-  const handleAddTransactions = async (newItems: Transaction | Transaction[]) => {
+  const handleSaveTransactions = async (newItems: Transaction | Transaction[]) => {
+    const itemsArray = Array.isArray(newItems) ? newItems : [newItems];
+    const isSingleUpdate = !Array.isArray(newItems) && editingTransaction && itemsArray[0].id === editingTransaction.id;
+
+    // Se for edição de um item que pertence a uma série, perguntar o modo
+    if (isSingleUpdate && editingTransaction?.seriesId) {
+      setTransactionToUpdateMode(itemsArray[0]);
+      setIsFormOpen(false);
+      return;
+    }
+
     await triggerSyncFeedback(async () => {
-      const itemsToAdd = Array.isArray(newItems) ? newItems : [newItems];
-      await db.saveTransactions(itemsToAdd);
+      await db.saveTransactions(itemsArray);
       const updated = await db.getAllTransactions();
       setTransactions(updated);
       setIsFormOpen(false);
+      setEditingTransaction(null);
+    });
+  };
+
+  const confirmUpdate = async (mode: 'single' | 'future') => {
+    if (!transactionToUpdateMode) return;
+
+    await triggerSyncFeedback(async () => {
+      if (mode === 'single') {
+        await db.saveTransaction(transactionToUpdateMode);
+      } else {
+        const baseDate = new Date(transactionToUpdateMode.date);
+        const toUpdate = transactions.filter(t => {
+          const isSameSeries = t.seriesId === transactionToUpdateMode.seriesId;
+          const tDate = new Date(t.date);
+          return isSameSeries && tDate.getTime() >= baseDate.getTime();
+        });
+
+        const updatedItems = toUpdate.map(t => {
+          // Se for o item original, usa os dados completos dele
+          if (t.id === transactionToUpdateMode.id) return transactionToUpdateMode;
+          
+          // Para os outros da série, atualiza campos comuns mas preserva datas originais e parcelamento
+          return {
+            ...t,
+            description: transactionToUpdateMode.description.split(' (')[0] + (t.recurrence === RecurrenceType.INSTALLMENT ? ` (${t.installmentNumber}/${t.installmentsCount})` : ' (Fixo)'),
+            amount: transactionToUpdateMode.amount,
+            category: transactionToUpdateMode.category,
+            type: transactionToUpdateMode.type
+          };
+        });
+
+        await db.saveTransactions(updatedItems);
+      }
+      
+      const updated = await db.getAllTransactions();
+      setTransactions(updated);
+      setTransactionToUpdateMode(null);
       setEditingTransaction(null);
     });
   };
@@ -428,7 +476,26 @@ const App: React.FC = () => {
               <h3 className="text-2xl font-black text-white">{editingTransaction ? 'Editar' : 'Novo'}</h3>
               <button onClick={() => setIsFormOpen(false)} className="text-slate-400 hover:text-white text-3xl">&times;</button>
             </div>
-            <TransactionForm onSubmit={handleAddTransactions} initialData={editingTransaction} onCancel={() => setIsFormOpen(false)} />
+            <TransactionForm onSubmit={handleSaveTransactions} initialData={editingTransaction} onCancel={() => setIsFormOpen(false)} />
+          </div>
+        </div>
+      )}
+
+      {transactionToUpdateMode && (
+        <div className="fixed inset-0 z-[175] flex items-center justify-center p-4 bg-slate-950/85 backdrop-blur-lg">
+          <div className="border rounded-[2.5rem] bg-slate-900 border-slate-800 p-10 text-center space-y-8 w-full max-w-sm">
+            <div className="mx-auto w-20 h-20 bg-rose-500/20 rounded-3xl flex items-center justify-center text-rose-500 shadow-xl shadow-rose-500/10">
+              <RefreshCw size={40} className="animate-pulse-soft" />
+            </div>
+            <div>
+              <h3 className="text-2xl font-black text-white mb-2">Atualizar Lançamento</h3>
+              <p className="text-slate-400 text-sm">Deseja aplicar estas mudanças para quais registros?</p>
+            </div>
+            <div className="flex flex-col gap-4">
+              <button onClick={() => confirmUpdate('single')} className="w-full py-4 bg-slate-800 text-white rounded-2xl font-bold uppercase text-xs">Apenas este mês</button>
+              <button onClick={() => confirmUpdate('future')} className="w-full py-4 bg-rose-600 text-white rounded-2xl font-bold uppercase text-xs">Este e todos os futuros</button>
+              <button onClick={() => setTransactionToUpdateMode(null)} className="text-slate-500 font-bold uppercase text-[10px]">Cancelar</button>
+            </div>
           </div>
         </div>
       )}
