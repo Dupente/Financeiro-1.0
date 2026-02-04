@@ -3,7 +3,7 @@
   "name": "Ricardo Finance - Controle Inteligente",
   "short_name": "Finance Ricardo",
   "description": "Controle financeiro sofisticado com IA e relatórios mensais para Ricardo.",
-  "start_url": "./index.html",
+  "start_url": "/",
   "display": "standalone",
   "background_color": "#020617",
   "theme_color": "#4f46e5",
