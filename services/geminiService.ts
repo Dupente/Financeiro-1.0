@@ -2,10 +2,28 @@
 import { GoogleGenAI } from "@google/genai";
 import { Transaction } from "../types";
 
-// Always use const ai = new GoogleGenAI({apiKey: process.env.API_KEY});
-const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+// Função helper para obter a instância de forma segura
+const getAiClient = () => {
+  const apiKey = process.env.API_KEY;
+  if (!apiKey) {
+    console.warn("Gemini API Key não configurada.");
+    return null;
+  }
+  try {
+    return new GoogleGenAI({ apiKey });
+  } catch (error) {
+    console.error("Erro ao inicializar Gemini Client:", error);
+    return null;
+  }
+};
 
 export const getFinancialAdvice = async (transactions: Transaction[]) => {
+  const ai = getAiClient();
+  
+  if (!ai) {
+    return "A chave de API da IA não está configurada ou é inválida. Verifique as configurações do Vercel.";
+  }
+
   const summary = transactions.map(t => ({
     type: t.type,
     amount: t.amount,
