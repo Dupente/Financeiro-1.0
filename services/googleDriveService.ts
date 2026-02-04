@@ -1,5 +1,6 @@
 
-const CLIENT_ID = "SEU_CLIENT_ID_AQUI.apps.googleusercontent.com"; // Substituir pelo Client ID real
+// Tenta ler do env (Vercel), ou usa placeholder
+const CLIENT_ID = process.env.GOOGLE_CLIENT_ID || "SEU_CLIENT_ID_AQUI.apps.googleusercontent.com"; 
 const DISCOVERY_DOC = "https://www.googleapis.com/discovery/v1/apis/drive/v3/rest";
 const SCOPES = "https://www.googleapis.com/auth/drive.file";
 
@@ -14,7 +15,7 @@ export class GoogleDriveService {
       const google = (window as any).google;
 
       if (!gapi || !google) {
-        console.warn("Scripts do Google não carregados.");
+        console.warn("Scripts do Google não carregados ou bloqueados.");
         resolve();
         return;
       }
@@ -40,8 +41,20 @@ export class GoogleDriveService {
   }
 
   async authenticate(): Promise<void> {
+    if (!this.tokenClient) {
+        await this.init();
+    }
+    // Se ainda assim falhar (ex: script não carregou), avisa
+    if (!this.tokenClient) {
+        console.error("Google Identity Services não inicializado.");
+        return;
+    }
     return new Promise((resolve) => {
       this.tokenClient.requestAccessToken({ prompt: 'consent' });
+      // O callback do initTokenClient resolverá o fluxo, mas aqui apenas iniciamos
+      // Em uma impl real, precisaríamos de um mecanismo de espera mais robusto,
+      // mas para este escopo simples, assumimos que o callback original lida com o token.
+      resolve();
     });
   }
 

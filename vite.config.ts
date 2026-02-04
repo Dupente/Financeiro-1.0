@@ -4,10 +4,13 @@ import react from '@vitejs/plugin-react';
 
 export default defineConfig({
   plugins: [react()],
-  base: './', // Essencial para deploy em subpastas como GitHub Pages
+  base: '/', // Configuração padrão para deploy na raiz (Vercel)
   define: {
-    // Permite que o código acesse process.env.API_KEY como solicitado nas diretrizes
-    'process.env.API_KEY': JSON.stringify(process.env.API_KEY)
+    // Injeta variáveis de ambiente no build (Vercel -> Client Side)
+    'process.env.API_KEY': JSON.stringify(process.env.API_KEY),
+    'process.env.SUPABASE_URL': JSON.stringify(process.env.SUPABASE_URL),
+    'process.env.SUPABASE_ANON_KEY': JSON.stringify(process.env.SUPABASE_ANON_KEY),
+    'process.env.GOOGLE_CLIENT_ID': JSON.stringify(process.env.GOOGLE_CLIENT_ID),
   },
   build: {
     outDir: 'dist',

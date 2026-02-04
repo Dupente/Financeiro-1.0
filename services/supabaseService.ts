@@ -2,8 +2,9 @@
 import { createClient } from '@supabase/supabase-js';
 import { Transaction, TransactionStatus, TransactionType, RecurrenceType } from '../types';
 
-const SUPABASE_URL = 'https://perbfjbezxaxftvnvfds.supabase.co';
-const SUPABASE_ANON_KEY = 'sb_publishable_gqJfX5Lxtr_6fZrPpLB1cw_nZQUrsxw';
+// Usa variáveis de ambiente se disponíveis (Vercel), senão usa fallback
+const SUPABASE_URL = process.env.SUPABASE_URL || 'https://perbfjbezxaxftvnvfds.supabase.co';
+const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY || 'sb_publishable_gqJfX5Lxtr_6fZrPpLB1cw_nZQUrsxw';
 
 export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
